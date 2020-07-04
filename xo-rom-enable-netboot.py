@@ -34,7 +34,7 @@ with open(sys.argv[1], 'r+b') as f:
     garbage_location = 0x67046 # The MacsBug copyright string in the ROM Disk
 
     # Make out own structure, as adapted from NetBoot.h
-    the_netboot_structure = struct.pack('>BBBB BB 8s 32s 8s H',
+    the_netboot_structure = struct.pack('>BBBB BB 16s 32s 8s H', # Note that "int"s are 4 bytes, somehow!
         # First 4 bytes at PRAM+4
         1,                              # char    osType;         /* preferred os to boot from */
         1,                              # char    protocol;       /* preferred protocol to boot from */
@@ -44,11 +44,15 @@ with open(sys.argv[1], 'r+b') as f:
         # Now, the AppleTalk-protocol-specific part
         0,                              # unsigned char   nbpVars;        /* address of last server that we booted off of */
         0,                              # unsigned char   timeout;        /* seconds to wait for bootserver response */
-        b'',                            # unsigned int    signature[4];   /* image signature */
+        b'',                            # unsigned int    signature[4];   /* image signature */ Elliot notes: zeroes match anything!
         b'Elliot',                      # char            userName[31];   /* an array of char, no length byte */
         b'volapuk',                     # char            password[8];    /* '' */
-        0x7777,                         # short           serverNum;      /* the server number */
+        0xBABE,                         # short           serverNum;      /* the server number */
     ).ljust(72, b'\0')
+
+    # the_netboot_structure = bytearray(the_netboot_structure)
+    # for i, j in enumerate(range(54, len(the_netboot_structure))):
+    #     the_netboot_structure[j] = i
 
     # This is the guts of the NetBoot ReadPRAM procedure
     f.seek(0x1DF08)
@@ -64,6 +68,17 @@ with open(sys.argv[1], 'r+b') as f:
     f.seek(garbage_location)
     f.write(the_netboot_structure)
 
+    # Do the dodgy... cancel signature validation!
+    f.seek(0x21A84)
+    while f.tell() < 0x21A98:
+        f.write(b'Nq') # nop
+
+    # Work around Mini vMac's cutesy many-drives hack (it steals out preferred drivenum of 4 from us)
+    f.seek(0x1DF51) # AddMyDrive: moveq #4,d9
+    f.write(b'\x10')
+    f.seek(0x1DFDF) # myExtFSFilter: cmp.w #4,d0
+    f.write(b'\x10')
+
     # Enable this to make a SysError, for rudimentaly debug output
-    # f.seek(0x1DD4E)
-    # f.write(b'\xA9\xC9')
+    f.seek(0x878C)
+    f.write(assemble('move.w #0xFFFF,D0  \n  .2byte  0xA9C9'))
