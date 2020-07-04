@@ -13,7 +13,11 @@ The xo-rom-enable-netboot.py script can edit xo.rom (Macintosh Classic) to force
 
 	cp xo.rom edit.rom && ./xo-rom-enable-netboot.py edit.rom&& Mini\ vMac\ Classic.app/Co*/Ma*/* edit.rom
 
-Running NetBoot.py simultaneously now shows the netBOOT driver sending DDP packets, and getting no response.
+Running NetBoot.py simultaneously now shows the netBOOT driver sending DDP packets.
+
+(Some progress that I didn't bother writing about)
+
+It works! (Albeit with a heavily patched Classic ROM.)
 
 
 Trivia

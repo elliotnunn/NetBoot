@@ -90,6 +90,7 @@ getBootBlocks
 
             bra     return
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 getSysVol
     ; Our register conventions:
@@ -189,6 +190,9 @@ GotDrvNum
             move.w  #(DiskImageEnd-DiskImage)>>16,$E(A2)    ; dQDrvSz2
             move.w  #0,$A(A2)                               ; dQFSID should be for a native fs
 
+            lea     gDQEAddr,A0
+            move.l  A2,(A0)
+
     ; Into the drive queue (which will further populate the DQE)
             move.l  A2,A0                                   ; A0 = DQE ptr
             move.w  D3,D0
@@ -207,6 +211,8 @@ GotDrvNum
 
             bra     return
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 mountSysVol
             link    A6,#-$32
             movem.l A2-A4/D3,-(SP)
@@ -214,28 +220,33 @@ mountSysVol
             lea     gDriveNum,A0
             move.w  (A0),D3
 
-    ; Make our call able to work! (Fuck, this is ugly)
-            lea     NaughtyFSQHSave,A0
-            move.l  $3E2,(A0)
-            lea     NaughtyFSQHKiller,A0
-            move.l  A0,$3E2                                 ; Disable FSQueueSync
+    ; Set aside the FS queue to stop MountVol jamming up
+            move.w  $360,-(SP)      ; FSBusy
+            move.l  $362,-(SP)      ; FSQHead
+            move.l  $366,-(SP)      ; FSQTail
+            clr.w   $360
+            clr.l   $362
+            clr.l   $366
 
-    ; MountVol and pray
+    ; MountVol
             lea     -$32(A6),A0
             bsr     clearblock
-            move.w  #7,$16(A0)                              ; ioVRefNum = ioDrvNum = the drive number
+            move.w  D3,$16(A0)                              ; ioVRefNum = ioDrvNum = the drive number
             dc.w    $A00F                                   ; _MountVol
 
-    ; Tell Elliot that we made it through
-            move.w  #$1234,D0
-            dc.w    $a9c9
+    ; Restore the FS queue
+            move.l  (SP)+,$366
+            move.l  (SP)+,$362
+            move.w  (SP)+,$360
 
+    ; Tattle about the DQE and VCB
+            move.l  4+12(A6),A1
+            move.l  $356+2,A0                               ; VCBQHdr.QHead (maybe I should be clever-er)
+            move.l  A0,(A1)
 
-
-
-
-
-
+            move.l  4+16(A6),A1
+            lea     gDQEAddr,A0
+            move.l  (A0),(A1)
 
             movem.l (SP)+,A2-A4/D3
             unlk    A6
@@ -247,7 +258,6 @@ return
             rts
 
 error
-            move.w  #$DDDD,D0
             dc.w    $A9C9
 
 
@@ -280,26 +290,12 @@ clearblock
             rts
 
 
-NaughtyFSQHSave
-            dc.l    0
-
-
-NaughtyFSQHKiller
-            move.l  A0,-(SP)
-            lea     NaughtyFSQHSave,A0
-            move.l  (A0),$3E2
-            move.l  (SP)+,A0
-
-            add.l   #4,SP
-            rts
-
-
 DrvrNameString
             dc.b    11, ".netRamDisk"
 
 
-gDriveNum
-            dc.w    0
+gDriveNum   dc.w    0
+gDQEAddr    dc.l    0
 
 
 ; code on this side is for start only, and stays in the netBOOT driver globals until released
@@ -328,19 +324,6 @@ DrvrBase
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrOpen
-            movem.l a0-a6/d0-d7,-(SP)
-            lea     DrvrOpen,A0
-            add.l   #(mxbg-DrvrOpen),A0
-            jsr     (A0)
-            dc.w    $A9C9
-            dc.w    $A9C9
-            dc.w    $A9C9
-            dc.w    $A9C9
-mxbgokay
-            movem.l (SP)+,a0-a6/d0-d7
-
-            dc.w    $A9FF
-
             move.w  #0,$10(A0)      ; ioResult
             rts
 
@@ -352,10 +335,10 @@ DrvrPrime
             cmp.b   #2,$7(A0)       ; ioTrap == aRdCmd
             bne.s   notRead
 
-    ; D1 = source offset
+    ; D1 = image offset
             move.l  $10(A1),D1      ; Device Mgr gives us dCtlPosition
 
-    ; D0 = number of bytes to read
+    ; D0 = number of bytes
             move.l  $24(A0),D0      ; ioReqCount
             move.l  D0,$28(A0)      ; -> ioActCount
 
@@ -364,21 +347,37 @@ DrvrPrime
             add.l   D0,D2           ; calculate new position
             move.l  D2,$10(A1)      ; -> dCtlPosition
 
-    ; Do the dirty
+    ; Do the dirty (we are just about to trash A0, so use it first)
+            move.w  #0,$10(A0)      ; ioResult
+            move.l  $20(A0),A1      ; ioBuffer
             lea     DiskImage,A0
             add.l   D1,A0
-            move.l  $20(A0),A1      ; ioBuffer
             dc.w    $A02E           ; BlockMove
 
-            move.w  #0,$10(A0)      ; ioResult
             bra.s   primeFinish
 
-
 notRead
-            move.w  #$2222,D0
-            dc.w    $A9C9
             cmp.b   #3,7(A0)        ; ioTrap == aRdCmd
+            bne.s   primeFinish
 
+    ; D1 = image offset
+            move.l  $10(A1),D1      ; Device Mgr gives us dCtlPosition
+
+    ; D0 = number of bytes
+            move.l  $24(A0),D0      ; ioReqCount
+            move.l  D0,$28(A0)      ; -> ioActCount
+
+    ; Advance the pointer
+            move.l  D1,D2
+            add.l   D0,D2           ; calculate new position
+            move.l  D2,$10(A1)      ; -> dCtlPosition
+
+    ; Do the dirty (we are just about to trash A0, so use it first)
+            move.w  #0,$10(A0)      ; ioResult
+            move.l  $20(A0),A0      ; ioBuffer
+            lea     DiskImage,A1
+            add.l   D1,A1
+            dc.w    $A02E           ; BlockMove
 
 primeFinish
             movem.l (SP)+,A0-A1/D0-D2
@@ -387,10 +386,7 @@ primeFinish
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrControl
-            move.w  #$2222,D0
-            dc.w    $A9C9
-
-            move.w  #0,$10(A0)      ; ioResult
+            move.w  #-18,$10(A0)     ; ioResult
             bra     DrvrFinish
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -452,10 +448,6 @@ DrvrNoIoDone
 
 DiskImage {chr(10).join(' dc.b ' + str(x) for x in disk_image)}
 DiskImageEnd
-
-mxbg {chr(10).join(' dc.b ' + str(x) for x in mxbg)}
-mxbgEnd
-
 
 BufPtrCopyEnd
 ''')

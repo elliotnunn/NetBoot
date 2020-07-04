@@ -112,11 +112,19 @@ GotDrvNum
 ;            lea     NaughtyFSQHKiller,A0
 ;            move.l  A0,$3E2                                 ; Disable FSQueueSync
 
+            move.w  $360,-(SP)      ; FSBusy
+            move.l  $362,-(SP)      ; FSQHead
+            move.l  $366,-(SP)      ; FSQTail
+
     ; MountVol and pray
             lea     -$32(A6),A0
             bsr     clearblock
             move.w  D3,$16(A0)                              ; ioVRefNum = ioDrvNum = the drive number
             dc.w    $A00F                                   ; _MountVol
+
+            move.l  (SP)+,$366      ; FSQTail
+            move.l  (SP)+,$362      ; FSQHead
+            move.w  (SP)+,$360      ; FSBusy
 
     ; Tell Elliot that we made it through
 ;            dc.w    $A9FF
@@ -160,20 +168,6 @@ clearblock
             clr.w   $2c(A0)
             clr.w   $2e(A0)
             clr.w   $30(A0)
-            rts
-
-
-NaughtyFSQHSave
-            dc.l    0
-
-
-NaughtyFSQHKiller
-            move.l  A0,-(SP)
-            lea     NaughtyFSQHSave,A0
-            move.l  (A0),$3E2
-            move.l  (SP)+,A0
-
-            add.l   #4,SP
             rts
 
 
