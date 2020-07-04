@@ -1,0 +1,343 @@
+myUnitNum       equ     52
+myDRefNum       equ     ~myUnitNum
+
+    ; Our register conventions:
+    ;   A2 = fake dqe; A3 = dce; A4 = copied driver
+
+            link    A6,#-$32
+            movem.l A2-A4/D3,-(SP)
+
+    ; Now I copy all this stuff under BufPtr (because this current location will disappear)
+            sub.l   #(BufPtrCopyEnd-BufPtrCopy),$10C        ; BufPtr
+            move.l  $10C,A4                                 ; ... into A4
+
+    ; Copy the driver and image as one chunk
+            lea     BufPtrCopy,A0
+            move.l  A4,A1
+            move.l  #(BufPtrCopyEnd-BufPtrCopy),D0
+            dc.w    $A02E                                   ; BlockMove
+
+    ; Install the driver in the unit table
+            move.l  #myDRefNum,D0
+            dc.w    $A43D                                   ; _DrvrInstall ReserveMem
+            bne     error
+
+    ; Get DCE handle of installed driver
+            move.l  $11C,A0                                 ; UTableBase
+            add.l   #myUnitNum*4,A0
+            move.l  (A0),A3
+
+    ; Lock it down
+            move.l  A3,A0
+            dc.w    $A029                                   ; _HLock
+
+    ; Populate the empty DCE that DrvrInstall left us
+            move.l  (A3),A0                                 ; A0 = dce ptr
+
+            move.l  A4,0(A0)                                ; dCtlDriver is pointer (not hdl)
+
+            move.w  0(A4),D0                                ; drvrFlags
+            and.w   #~$0040,D0                              ; Clear dRAMBased bit (to treat dCtlDriver as a pointer)
+            move.w  D0,4(A0)                                ; dCtlFlags
+
+    ; Copy these other values that apparently the Device Mgr forgets
+            move.w  2(A4),$22(A0)                           ; drvrDelay to dCtlDelay
+            move.w  4(A4),$24(A0)                           ; drvrEMask to dCtlEMask
+            move.w  6(A4),$26(A0)                           ; drvrMenu to dCtlMenu
+
+    ; Open the driver
+            lea     -$32(A6),A0
+            bsr     clearblock
+            lea     DrvrNameString,A1
+            move.l  A1,$12(A0)                              ; IOFileName
+            dc.w    $A000                                   ; _Open
+            bne     error
+
+    ; Attempt to read from the driver
+;            lea     -$32(A6),A0
+;            bsr     clearblock
+;            move.w  #myDRefNum,$18(A0)                      ; ioRefNum
+;            move.l  #$200,$24(A0)                           ; ioByteCount
+;            dc.w    $A002
+;            bne     error
+
+    ; Create a DQE
+            move.l  #$16,D0
+            dc.w    $A71E                                   ; _NewPtr ,Sys,Clear
+            add.l   #4,A0                                   ; has some cheeky flags at negative offset
+            move.l  A0,A2
+
+    ; Point our caller to the fake dqe
+            move.l  4+12(A6),A1
+            move.l  A2,(A1)
+
+    ; Find a free drive number (nicked this code from BootUtils.a:AddMyDrive)
+            LEA     $308,A0                     ; [DrvQHdr]
+            MOVEQ   #4,D3                       ; start with drive number 4
+CheckDrvNum
+            MOVE.L  2(A0),A1                    ; [qHead] start with first drive
+CheckDrv
+            CMP.W   6(A1),D3                    ; [dqDrive] does this drive already have our number?
+            BEQ.S   NextDrvNum                  ; yep, bump the number and try again.
+            CMP.L   6(A0),A1                    ; [qTail] no, are we at the end of the queue?
+            BEQ.S   GotDrvNum                   ; if yes, our number's unique! Go use it.
+            MOVE.L  0(A1),A1                    ; [qLink] point to next queue element
+            BRA.S   CheckDrv                    ; go check it.
+
+NextDrvNum
+    ; this drive number is taken, pick another
+
+            ADDQ.W  #1,D3                       ; bump to next possible drive number
+            BRA.S   CheckDrvNum                 ; try the new number
+GotDrvNum
+
+    ; Populate the DQE
+            move.l  #$80080000,-4(A2)                       ; secret flags, see http://mirror.informatimago.com/next/developer.apple.com/documentation/mac/Files/Files-112.html
+            move.w  #1,4(A2)                                ; qType
+            move.w  #(DiskImageEnd-DiskImage)&$FFFF,$C(A2)  ; dQDrvSz
+            move.w  #(DiskImageEnd-DiskImage)>>16,$E(A2)    ; dQDrvSz2
+            move.w  #0,$A(A2)                               ; dQFSID should be for a native fs
+
+    ; Into the drive queue (which will further populate the DQE)
+            move.l  A2,A0                                   ; A0 = DQE ptr
+            move.w  D3,D0
+            swap.w  D0                                      ; D0.H = drive number
+            move.w  #myDRefNum,D0                           ; D0.L = driver refnum
+            dc.w    $A04E                                   ; _AddDrive
+            bne     error
+
+    ; Make our call able to work! (Fuck, this is ugly)
+;            lea     NaughtyFSQHSave,A0
+;            move.l  $3E2,(A0)
+;            lea     NaughtyFSQHKiller,A0
+;            move.l  A0,$3E2                                 ; Disable FSQueueSync
+
+    ; MountVol and pray
+            lea     -$32(A6),A0
+            bsr     clearblock
+            move.w  D3,$16(A0)                              ; ioVRefNum = ioDrvNum = the drive number
+            dc.w    $A00F                                   ; _MountVol
+
+    ; Tell Elliot that we made it through
+;            dc.w    $A9FF
+
+    ; Clean up our stack frame
+            movem.l (SP)+,A2-A4/D3
+            unlk    A6
+
+            rts
+
+
+
+error
+            move.w  #$DDDD,D0
+            dc.w    $A9FF
+
+
+clearblock
+            clr.w   $0(A0)
+            clr.w   $2(A0)
+            clr.w   $4(A0)
+            clr.w   $6(A0)
+            clr.w   $8(A0)
+            clr.w   $a(A0)
+            clr.w   $c(A0)
+            clr.w   $e(A0)
+            clr.w   $10(A0)
+            clr.w   $12(A0)
+            clr.w   $14(A0)
+            clr.w   $16(A0)
+            clr.w   $18(A0)
+            clr.w   $1a(A0)
+            clr.w   $1c(A0)
+            clr.w   $1e(A0)
+            clr.w   $20(A0)
+            clr.w   $22(A0)
+            clr.w   $24(A0)
+            clr.w   $26(A0)
+            clr.w   $28(A0)
+            clr.w   $2a(A0)
+            clr.w   $2c(A0)
+            clr.w   $2e(A0)
+            clr.w   $30(A0)
+            rts
+
+
+NaughtyFSQHSave
+            dc.l    0
+
+
+NaughtyFSQHKiller
+            move.l  A0,-(SP)
+            lea     NaughtyFSQHSave,A0
+            move.l  (A0),$3E2
+            move.l  (SP)+,A0
+
+            add.l   #4,SP
+            rts
+
+
+DrvrNameString
+            dc.b    11, ".netRamDisk"
+
+
+gDriveNum
+            dc.w    0
+
+
+; code on this side is for start only, and stays in the netBOOT driver globals until released
+
+BufPtrCopy
+
+; code on this side gets copied beneath BufPtr (is that the best place??)
+
+
+; Shall we start with a driver?
+DrvrBase
+            dc.w    $4F00           ; dReadEnable dWritEnable dCtlEnable dStatEnable dNeedLock
+            dc.w    0               ; delay
+            dc.w    0               ; evt mask
+            dc.w    0               ; menu
+
+            dc.w    DrvrOpen-DrvrBase
+            dc.w    DrvrPrime-DrvrBase
+            dc.w    DrvrControl-DrvrBase
+            dc.w    DrvrStatus-DrvrBase
+            dc.w    DrvrClose-DrvrBase
+            dc.b    11, ".netRamDisk"
+
+; a0=iopb, a1=dce on entry to all of these...
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrOpen
+            move.w  #0,$10(A0)      ; ioResult
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrPrime
+            movem.l A0-A1/D0-D2,-(SP)
+
+            cmp.b   #2,$7(A0)       ; ioTrap == aRdCmd
+            bne.s   notRead
+
+    ; D1 = image offset
+            move.l  $10(A1),D1      ; Device Mgr gives us dCtlPosition
+
+    ; D0 = number of bytes
+            move.l  $24(A0),D0      ; ioReqCount
+            move.l  D0,$28(A0)      ; -> ioActCount
+
+    ; Advance the pointer
+            move.l  D1,D2
+            add.l   D0,D2           ; calculate new position
+            move.l  D2,$10(A1)      ; -> dCtlPosition
+
+    ; Do the dirty (we are just about to trash A0, so use it first)
+            move.w  #0,$10(A0)      ; ioResult
+            move.l  $20(A0),A1      ; ioBuffer
+            lea     DiskImage,A0
+            add.l   D1,A0
+            dc.w    $A02E           ; BlockMove
+
+            bra.s   primeFinish
+
+notRead
+            cmp.b   #3,7(A0)        ; ioTrap == aRdCmd
+            bne.s   primeFinish
+
+    ; D1 = image offset
+            move.l  $10(A1),D1      ; Device Mgr gives us dCtlPosition
+
+    ; D0 = number of bytes
+            move.l  $24(A0),D0      ; ioReqCount
+            move.l  D0,$28(A0)      ; -> ioActCount
+
+    ; Advance the pointer
+            move.l  D1,D2
+            add.l   D0,D2           ; calculate new position
+            move.l  D2,$10(A1)      ; -> dCtlPosition
+
+    ; Do the dirty (we are just about to trash A0, so use it first)
+            move.w  #0,$10(A0)      ; ioResult
+            move.l  $20(A0),A0      ; ioBuffer
+            lea     DiskImage,A1
+            add.l   D1,A1
+            dc.w    $A02E           ; BlockMove
+
+primeFinish
+            movem.l (SP)+,A0-A1/D0-D2
+            bra     DrvrFinish
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrControl
+;            move.w  #$2222,D0
+;            dc.w    $A9FF
+
+            move.w  #-18,$10(A0)     ; ioResult
+            bra     DrvrFinish
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrStatus
+            cmp.w   #6,$1A(A0)
+            beq.s   status_fmtLstCode
+            cmp.w   #8,$1A(A0)
+            beq.s   status_drvStsCode
+            bra.s   status_unknown
+
+status_fmtLstCode ; tell them about our size
+            move.l  A2,-(SP)
+
+            move.w  #1,$1C(A0)
+            move.l  $1C+2(A0),A2
+            move.l  #(DiskImageEnd-DiskImage),0(A2)
+            move.l  #$40000000,4(A2)
+
+            move.l  (SP)+,A2
+
+            move.w  #0,$10(A0)          ; ioResult = statusErr
+            bra     DrvrFinish
+
+status_drvStsCode ; tell them about some of our flags
+            move.w  #0,$1C(A0)          ; csParam[0..1] = track no (0)
+            move.l  #80080000,$1C+2(A0) ; csParam[2..5] = same flags as dqe
+            
+            move.w  #0,$10(A0)          ; ioResult = noErr
+            bra     DrvrFinish
+
+status_unknown
+            move.w  $1A(A0),D0          ; dodgy, for debugging
+            add.w   #$3000,D0
+            dc.w    $A9FF
+
+            move.w  #-18,$10(A0)        ; ioResult
+            bra     DrvrFinish
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrClose
+            move.w  #$4444,D0
+            dc.w    $A9FF
+
+            move.w  #0,$10(A0)      ; ioResult
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrFinish
+            move.w  6(A0),D1        ; iopb.ioTrap
+            btst    #9,D1           ; noQueueBit
+            bne.s   DrvrNoIoDone
+            move.l  $8FC,-(SP)      ; jIODone
+DrvrNoIoDone
+            rts
+
+
+DiskImage
+            INCLUDE "systools607.dsk.a"
+DiskImageEnd
+
+BufPtrCopyEnd

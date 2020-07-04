@@ -35,13 +35,18 @@ my_unique_ltoudp_id = b'El' + (os.getpid() & 0xFFFF).to_bytes(2, 'big')
 
 
 disk_image = open(path.join(path.dirname(path.abspath(__file__)), 'systools607.dsk'), 'rb').read()
-
+mxbg = open(path.join(path.dirname(path.abspath(__file__)), 'MacsBug 6.2.2/MacsBug'), 'rb').read()[512:]
 
 
 
 def assemble(the_code):
     with open('/tmp/vasm.bootblocks', 'w') as f:
         f.write(the_code)
+
+    try:
+        os.remove('/tmp/vasm.bootblocks.bin')
+    except FileNotFoundError:
+        pass
 
     assembler = path.join(path.dirname(path.abspath(__file__)), 'vasm-1/vasmm68k_mot')
     os.system(f'{assembler} -quiet -Fbin -pic -o /tmp/vasm.bootblocks.bin /tmp/vasm.bootblocks')
@@ -215,17 +220,9 @@ mountSysVol
             lea     NaughtyFSQHKiller,A0
             move.l  A0,$3E2                                 ; Disable FSQueueSync
 
-    ; Try to mount the volume!
+    ; MountVol and pray
             lea     -$32(A6),A0
             bsr     clearblock
-
-    ; FSQueue ourself!
-;            move.w  #$A00F,D1
-;            move.l  $2AE,A1         ; ROMBase
-;            add.l   #$42E8,A1
-;            jsr     (A1)
-
-    ; MountVol and pray
             move.w  #7,$16(A0)                              ; ioVRefNum = ioDrvNum = the drive number
             dc.w    $A00F                                   ; _MountVol
 
@@ -331,48 +328,50 @@ DrvrBase
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrOpen
+            movem.l a0-a6/d0-d7,-(SP)
+            lea     DrvrOpen,A0
+            add.l   #(mxbg-DrvrOpen),A0
+            jsr     (A0)
+            dc.w    $A9C9
+            dc.w    $A9C9
+            dc.w    $A9C9
+            dc.w    $A9C9
+mxbgokay
+            movem.l (SP)+,a0-a6/d0-d7
+
+            dc.w    $A9FF
+
             move.w  #0,$10(A0)      ; ioResult
             rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrPrime
-            movem.l A0-A4/D0-D4,-(SP)
-            move.l  A0,A2           ; ParamBlk
-            move.l  A1,A3           ; DCE
+            movem.l A0-A1/D0-D2,-(SP)
 
-            cmp.b   #2,$7(A2)       ; ioTrap == aRdCmd
+            cmp.b   #2,$7(A0)       ; ioTrap == aRdCmd
             bne.s   notRead
 
-    ; D0 = number of bytes to read
-            move.l  $24(A2),D0      ; ioReqCount
-            move.l  D0,$28(A2)      ; -> ioActCount
-
     ; D1 = source offset
-            clr.l   D1
-            cmp.b   #1,$2C(A2)      ; ? ioPosMode == fsFromStart
-            beq.s   dontAddMark
-            add.l   $10(A3),D1      ; add dCtlPosition
-dontAddMark
-            cmp.b   #3,$2C(A2)      ; ? ioPosMode == fsFromMark
-            bne.s   dontAddOffset
-            add.l   $2E(A2),D1      ; add ioPosOffset
-dontAddOffset
+            move.l  $10(A1),D1      ; Device Mgr gives us dCtlPosition
+
+    ; D0 = number of bytes to read
+            move.l  $24(A0),D0      ; ioReqCount
+            move.l  D0,$28(A0)      ; -> ioActCount
 
     ; Advance the pointer
-            move.l  D0,D2
-            add.l   D1,D2           ; calculate new position
-            move.l  D2,$10(A3)      ; -> dCtlPosition
-            move.l  D2,$2E(A2)      ; -> ioPosOffset
+            move.l  D1,D2
+            add.l   D0,D2           ; calculate new position
+            move.l  D2,$10(A1)      ; -> dCtlPosition
 
     ; Do the dirty
             lea     DiskImage,A0
             add.l   D1,A0
-            move.l  $20(A2),A1      ; ioBuffer
+            move.l  $20(A0),A1      ; ioBuffer
             dc.w    $A02E           ; BlockMove
 
-            move.w  #0,$10(A2)      ; ioResult
-            bra     primeFinish
+            move.w  #0,$10(A0)      ; ioResult
+            bra.s   primeFinish
 
 
 notRead
@@ -382,7 +381,7 @@ notRead
 
 
 primeFinish
-            movem.l (SP)+,A0-A4/D0-D4
+            movem.l (SP)+,A0-A1/D0-D2
             bra     DrvrFinish
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -405,20 +404,22 @@ DrvrStatus
 
 status_fmtLstCode ; tell them about our size
             move.l  A2,-(SP)
+
             move.w  #1,$1C(A0)
-            move.w  $1C+4(A0),A2
+            move.l  $1C+2(A0),A2
             move.l  #(DiskImageEnd-DiskImage),0(A2)
             move.l  #$40000000,4(A2)
+
             move.l  (SP)+,A2
 
-            move.w  #0,$10(A0)        ; ioResult = statusErr
+            move.w  #0,$10(A0)          ; ioResult = statusErr
             bra     DrvrFinish
 
 status_drvStsCode ; tell them about some of our flags
-            move.w  #0,$1C(A0)        ; csParam[0..1] = track no (0)
+            move.w  #0,$1C(A0)          ; csParam[0..1] = track no (0)
             move.l  #80080000,$1C+2(A0) ; csParam[2..5] = same flags as dqe
             
-            move.w  #0,$10(A0)        ; ioResult = noErr
+            move.w  #0,$10(A0)          ; ioResult = noErr
             bra     DrvrFinish
 
 status_unknown
@@ -426,7 +427,7 @@ status_unknown
             add.w   #$3000,D0
             dc.w    $A9C9
 
-            move.w  #-18,$10(A0)      ; ioResult
+            move.w  #-18,$10(A0)        ; ioResult
             bra     DrvrFinish
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -451,6 +452,10 @@ DrvrNoIoDone
 
 DiskImage {chr(10).join(' dc.b ' + str(x) for x in disk_image)}
 DiskImageEnd
+
+mxbg {chr(10).join(' dc.b ' + str(x) for x in mxbg)}
+mxbgEnd
+
 
 BufPtrCopyEnd
 ''')
@@ -701,3 +706,29 @@ while 1:
 
     else:
         print('unknown ddp payload', ddp_proto_type)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ;            clr.l   D1
+# ;            cmp.b   #1,$2C(A2)      ; ? ioPosMode == fsFromStart
+# ;            beq.s   dontAddMark
+# ;            move.l  $10(A3),D1      ; add dCtlPosition
+# ;dontAddMark
+# ;            cmp.b   #3,$2C(A2)      ; ? ioPosMode == fsFromMark
+# ;            bne.s   dontAddOffset
+# ;            add.l   $2E(A2),D1      ; add ioPosOffset
+# ;dontAddOffset
+

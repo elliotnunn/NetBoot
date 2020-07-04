@@ -80,5 +80,7 @@ with open(sys.argv[1], 'r+b') as f:
     f.write(b'\x10')
 
     # Enable this to make a SysError, for rudimentaly debug output
-    f.seek(0x878C)
-    f.write(assemble('move.w #0xFFFF,D0  \n  .2byte  0xA9C9'))
+    for x in '9380'.split():
+        x = eval('0x' + x)
+        f.seek(x)
+        f.write(assemble(f' move.l #{x},D0 \n .2byte  0xA9C9'))
