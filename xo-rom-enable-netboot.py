@@ -39,12 +39,12 @@ with open(sys.argv[1], 'r+b') as f:
         1,                              # char    osType;         /* preferred os to boot from */
         1,                              # char    protocol;       /* preferred protocol to boot from */
         0,                              # char    errors;         /* last error in network booting */
-        0xC0,                           # char    flags;          /* flags for: never net boot, boot first, etc. */
+        0x80,                           # char    flags;          /* flags for: never net boot, boot first, etc. */
 
         # Now, the AppleTalk-protocol-specific part
         0,                              # unsigned char   nbpVars;        /* address of last server that we booted off of */
         0,                              # unsigned char   timeout;        /* seconds to wait for bootserver response */
-        b'',                            # unsigned int    signature[4];   /* image signature */ Elliot notes: zeroes match anything!
+        b'PWD PWD PWD PWD ',            # unsigned int    signature[4];   /* image signature */ Elliot notes: zeroes match anything!
         b'Elliot',                      # char            userName[31];   /* an array of char, no length byte */
         b'volapuk',                     # char            password[8];    /* '' */
         0xBABE,                         # short           serverNum;      /* the server number */
@@ -68,10 +68,11 @@ with open(sys.argv[1], 'r+b') as f:
     f.seek(garbage_location)
     f.write(the_netboot_structure)
 
+    # I have implemented Snefru, so this is no longer needed:
     # Do the dodgy... cancel signature validation!
-    f.seek(0x21A84)
-    while f.tell() < 0x21A98:
-        f.write(b'Nq') # nop
+    # f.seek(0x21A84)
+    # while f.tell() < 0x21A98:
+    #     f.write(b'Nq') # nop
 
     # Work around Mini vMac's cutesy many-drives hack (it steals out preferred drivenum of 4 from us)
     f.seek(0x1DF51) # AddMyDrive: moveq #4,d9
@@ -80,7 +81,7 @@ with open(sys.argv[1], 'r+b') as f:
     f.write(b'\x10')
 
     # Enable this to make a SysError, for rudimentaly debug output
-    # for x in '9380'.split():
+    # for x in '218DA'.split():
     #     x = eval('0x' + x)
     #     f.seek(x)
     #     f.write(assemble(f' move.l #{x},D0 \n .2byte  0xA9C9'))

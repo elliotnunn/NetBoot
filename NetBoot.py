@@ -10,6 +10,8 @@ import struct
 
 import time
 
+from snefru_hash import snefru
+
 
 
 
@@ -35,7 +37,6 @@ my_unique_ltoudp_id = b'El' + (os.getpid() & 0xFFFF).to_bytes(2, 'big')
 
 
 disk_image = open(path.join(path.dirname(path.abspath(__file__)), 'systools607.dsk'), 'rb').read()
-mxbg = open(path.join(path.dirname(path.abspath(__file__)), 'MacsBug 6.2.2/MacsBug'), 'rb').read()[512:]
 
 
 
@@ -69,6 +70,7 @@ myUnitNum       equ     52
 myDRefNum       equ     ~myUnitNum
 
 
+Code
             cmp.l   #1,4(SP)
             beq     getBootBlocks
             cmp.l   #2,4(SP)
@@ -109,6 +111,11 @@ getSysVol
             move.l  #(BufPtrCopyEnd-BufPtrCopy),D0
             dc.w    $A02E                                   ; BlockMove
 
+    ; Truncate this block to reduce heap fragmentation
+            lea     Code,A0
+            move.l  #BufPtrCopy-Code,D0
+            dc.w    $A020                                   ; _SetPtrSize
+
     ; Install the driver in the unit table
             move.l  #myDRefNum,D0
             dc.w    $A43D                                   ; _DrvrInstall ReserveMem
@@ -144,14 +151,6 @@ getSysVol
             move.l  A1,$12(A0)                              ; IOFileName
             dc.w    $A000                                   ; _Open
             bne     error
-
-    ; Attempt to read from the driver
-;            lea     -$32(A6),A0
-;            bsr     clearblock
-;            move.w  #myDRefNum,$18(A0)                      ; ioRefNum
-;            move.l  #$200,$24(A0)                           ; ioByteCount
-;            dc.w    $A002
-;            bne     error
 
     ; Create a DQE
             move.l  #$16,D0
@@ -250,8 +249,6 @@ mountSysVol
 
             movem.l (SP)+,A2-A4/D3
             unlk    A6
-
-            bra     return
 
 return
             move.l  #0,d0
@@ -455,7 +452,13 @@ BufPtrCopyEnd
 
 
 
-image = image.ljust(512*20)
+image = bytearray(image)
+
+while len(image) % 512 != 512 - 64: image.append(0)
+the_hash = snefru(image)
+while len(image) % 512 != 512 - 16: image.append(0)
+image.extend(the_hash)
+print('Sig:', ''.join(('%02X' % b) for b in image[-16:]))
 
 
 ANY = "0.0.0.0"
