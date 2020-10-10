@@ -155,6 +155,7 @@ getSysVol
     ; Create a DQE
             move.l  #$16,D0
             dc.w    $A71E                                   ; _NewPtr ,Sys,Clear
+            bne     error
             add.l   #4,A0                                   ; has some cheeky flags at negative offset
             move.l  A0,A2
 
@@ -228,10 +229,10 @@ mountSysVol
             clr.l   $366
 
     ; MountVol
-            lea     -$32(A6),A0
             bsr     clearblock
             move.w  D3,$16(A0)                              ; ioVRefNum = ioDrvNum = the drive number
             dc.w    $A00F                                   ; _MountVol
+            bne     error
 
     ; Restore the FS queue
             move.l  (SP)+,$366
