@@ -88,7 +88,7 @@ getBootBlocks
             add.l   #$BA,A1                 ; ...is an element for the structured part of the boot blocks
             move.l  #138,D0                 ; ...of this length
 
-            dc.w    $A02E                  ; BlockMove
+            dc.w    $A22E                   ; _BlockMoveData
 
             bra     return
 
@@ -109,7 +109,7 @@ getSysVol
             lea     BufPtrCopy,A0
             move.l  A4,A1
             move.l  #(BufPtrCopyEnd-BufPtrCopy),D0
-            dc.w    $A02E                                   ; BlockMove
+            dc.w    $A22E                                   ; _BlockMoveData
 
     ; Truncate this block to reduce heap fragmentation
             lea     Code,A0
@@ -349,7 +349,7 @@ DrvrPrime
             move.l  $20(A0),A1      ; ioBuffer
             lea     DiskImage,A0
             add.l   D1,A0
-            dc.w    $A02E           ; BlockMove
+            dc.w    $A22E           ; _BlockMoveData
 
             bra.s   primeFinish
 
@@ -374,7 +374,7 @@ notRead
             move.l  $20(A0),A0      ; ioBuffer
             lea     DiskImage,A1
             add.l   D1,A1
-            dc.w    $A02E           ; BlockMove
+            dc.w    $A22E           ; _BlockMoveData
 
 primeFinish
             movem.l (SP)+,A0-A1/D0-D2
