@@ -38,6 +38,11 @@ my_unique_ltoudp_id = b'El' + (os.getpid() & 0xFFFF).to_bytes(2, 'big')
 
 disk_image = open(path.join(path.dirname(path.abspath(__file__)), 'systools607.dsk'), 'rb').read()
 
+# Strip the Disk Copy header
+if disk_image[0x54:0x56] == b'LK' or disk_image[0x454:0x456] == b'BD':
+    disk_image = disk_image[0x54:]
+    print('Stripped Disk Copy header from image')
+
 
 
 def assemble(the_code):
