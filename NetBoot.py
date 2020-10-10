@@ -15,23 +15,6 @@ from snefru_hash import snefru
 
 
 
-# ; the below code might come in handy later on, when we support executable boot blocks.
-# CodeToUncorruptTheBootBlocks:
-#     move.l  (SP),A1
-#     sub.l   #8,A1                   ; What will be the start address of the boot blocks??
-
-#     lea     BigDiskImage,A0
-#     move.l  #1024,D0
-#     dc.w    0xA02E                  ; BlockMove
-
-#     sub.l   #6,(SP)                 ; Re-run the code that called us; it will be real boot blocks now!
-#     rts
-
-
-
-
-
-
 my_unique_ltoudp_id = b'El' + (os.getpid() & 0xFFFF).to_bytes(2, 'big')
 
 
@@ -95,7 +78,40 @@ getBootBlocks
 
             dc.w    $A22E                   ; _BlockMoveData
 
+; If these boot blocks are executable (from offset 2), then the 138 bytes of
+; declarative data copied by the netBOOT driver are not enough. We edit the boot
+; blocks with a stub that copies the entire 1k into place. System 7 needs this.
+
+            move.b  6(A1),D0                ; BBVersion
+            cmp.b   #$44,D0
+            beq.s   executableBB
+            and.b   #$C0,D0
+            cmp.b   #$C0,D0
+            beq.s   executableBB
+
             bra     return
+
+executableBB                                ; Need to leave bytes 6,7 intact
+            move.l  #$60000004,2(A1)        ; BB+2: BRA.W BB+8
+            move.w  #$4EB9,8(A1)            ; BB+8: JSR fixBB
+            lea     fixBB,A0
+            move.l  A0,10(A1)
+
+            move.l  A1,A0                   ; Clear the icache with a BlockMove
+            move.l  #138,D0
+            dc.w    $A02E                   ; _BlockMove
+
+            bra     return
+
+fixBB                                       ; The BB stub JSRs to here
+            move.l  (SP)+,A1
+            sub.l   #14,A1                  ; "Rewind" to the start of the BB
+
+            lea     DiskImage,A0            ; Replace stub BB with correct BB
+            move.l  #$400,D0
+            dc.w    $A02E                   ; _BlockMove
+
+            jmp     2(A1)                   ; Jump to the fixed-up BB
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -225,7 +241,10 @@ mountSysVol
             lea     gDriveNum,A0
             move.w  (A0),D3
 
-    ; Set aside the FS queue to stop MountVol jamming up
+    ; System 7 needs MountVol to return the right vRefNum
+            move.l  $366,A0         ; Steal existing PB from FSQHead
+
+    ; Set aside the FS queue to stop MountVol deadlocking
             move.w  $360,-(SP)      ; FSBusy
             move.l  $362,-(SP)      ; FSQHead
             move.l  $366,-(SP)      ; FSQTail
