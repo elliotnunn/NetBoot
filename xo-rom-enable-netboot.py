@@ -24,50 +24,6 @@ def write_asm(f, asm):
 
 
 with open(sys.argv[1], 'r+b') as f:
-    # Skip the initial PRAM check in forXO.a:InstallNetBoot
-    f.seek(0x1d928)
-    while f.tell() < 0x1D982:
-        f.write(b'Nq') # nop
-
-    # Find a safe place to store our overridden NetBoot config struct
-    # (Which would otherwise be cobbled from various parts of PRAM)
-    garbage_location = 0x67046 # The MacsBug copyright string in the ROM Disk
-
-    # Make out own structure, as adapted from NetBoot.h
-    the_netboot_structure = struct.pack('>BBBB BB 16s 32s 8s H', # Note that "int"s are 4 bytes, somehow!
-        # First 4 bytes at PRAM+4
-        1,                              # char    osType;         /* preferred os to boot from */
-        1,                              # char    protocol;       /* preferred protocol to boot from */
-        0,                              # char    errors;         /* last error in network booting */
-        0x80,                           # char    flags;          /* flags for: never net boot, boot first, etc. */
-
-        # Now, the AppleTalk-protocol-specific part
-        0,                              # unsigned char   nbpVars;        /* address of last server that we booted off of */
-        0,                              # unsigned char   timeout;        /* seconds to wait for bootserver response */
-        b'PWD PWD PWD PWD ',            # unsigned int    signature[4];   /* image signature */ Elliot notes: zeroes match anything!
-        b'Elliot',                      # char            userName[31];   /* an array of char, no length byte */
-        b'volapuk',                     # char            password[8];    /* '' */
-        0xBABE,                         # short           serverNum;      /* the server number */
-    ).ljust(72, b'\0')
-
-    # the_netboot_structure = bytearray(the_netboot_structure)
-    # for i, j in enumerate(range(54, len(the_netboot_structure))):
-    #     the_netboot_structure[j] = i
-
-    # This is the guts of the NetBoot ReadPRAM procedure
-    f.seek(0x1DF08)
-    write_asm(f, f'''
-        move.l  a0,a1
-        move.l  0x2ae,a0 ; RomBase
-        add.l   #{hex(garbage_location)},a0
-        move.l  #{hex(len(the_netboot_structure))},d0
-        .2byte  0xA02E ; BlockMove
-        rts
-    ''')
-
-    f.seek(garbage_location)
-    f.write(the_netboot_structure)
-
     # I have implemented Snefru, so this is no longer needed:
     # Do the dodgy... cancel signature validation!
     # f.seek(0x21A84)

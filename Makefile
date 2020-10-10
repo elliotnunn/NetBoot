@@ -19,3 +19,17 @@ image: systools607.dsk.a Makefile
 
 systools607.dsk.a: systools607.dsk
 	python3 -c 'for b in open("systools607.dsk","rb").read(): print(" dc.b $$%02X" % b)' >systools607.dsk.a
+
+
+Bootstrap.bin: Bootstrap.a
+	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
+
+
+BootstrapFloppy/System.rdump: Bootstrap.bin
+	rfx cp $< $@//boot/1
+
+BootstrapFloppy.dsk: BootstrapFloppy/System.rdump
+	MakeHFS -n 'NetBoot Enabler' -i BootstrapFloppy -s 1440k -d now $@
+
+testflop: BootstrapFloppy.dsk
+	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom $<

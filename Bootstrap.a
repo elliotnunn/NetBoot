@@ -1,0 +1,99 @@
+; boot 1 resource
+; assemble with vasmm68k_mot
+
+            dc.b    "LK"
+            bra.w   Code
+            dc.b    "D"         ; executable on all machines
+            dc.b    $18         ; version number, unsure if important
+            dc.w    0           ; some flag thing
+
+
+            dc.b    6,  'System         '
+            dc.b    6,  'Finder         '
+            dc.b    7,  'MacsBug        '
+            dc.b    12, 'Disassembler   '
+            dc.b    13, 'StartUpScreen  '
+            dc.b    6,  'Finder         '
+            dc.b    9,  'Clipboard      '
+
+NumFCBs                 dc.w    10          ; number of FCBs to allocate at boot
+NumEvents               dc.w    20          ; number of event queue elements
+
+SystemHeapSize128K      dc.l    $4300       ; size of system heap for 128K system (never used)
+SystemHeapSize256K      dc.l    $8000       ; size of system heap for 256K system (never used)
+SystemHeapSize          dc.l    $20000      ; size of system heap (used for pre-7.0)
+
+
+; Okay, now we can ignore all of that crap and take control of the machine!
+
+Code
+
+
+
+            lea     bootVars,a0
+            lea     pRamTable,a1
+pramLoop
+            move.l  (a1)+,d0
+            beq.s   pramDone
+            move.l  d0,d2                   ; Save the len/offset arg for later
+            dc.w    $A052 ; _WriteXPRam
+            swap    d2                      ; Get count from upper byte
+            add.w   d2,a0                   ; and add it to bootVars
+            bra.s   pramLoop
+pramDone
+
+
+
+            ; all right, now reboot the machine
+            move.l  $2AE,a0 ; ROMBase
+            cmp.b   #0,8(A0)
+            beq.s   rebootPlus
+            cmp.b   #1,8(A0)
+            beq.s   rebootII
+            cmp.b   #2,8(A0)
+            beq.s   rebootSE
+            cmp.b   #3,8(A0)
+            beq.s   rebootPortable
+            cmp.b   #6,8(A0)
+            beq.s   rebootIIci
+
+            ; try our luck ... maybe it's a SuperMario?
+            move.w  #1,-(sp) ; sdRestart
+            dc.w    $A895 ; _ShutDown
+
+rebootPlus      jmp     $B82(a0)
+rebootII        jmp     $11AE(a0)
+rebootSE        jmp     $A52(a0)
+rebootPortable  jmp     $336E(a0)
+rebootIIci      jmp     $203E(a0)
+
+
+
+
+
+bootVars
+        ; bootVars
+            dc.b    1           ; osType        preferred os to boot from
+            dc.b    1           ; protocol      preferred protocol to boot from = NBP
+            dc.b    0           ; errors        last error in network booting
+            dc.b    $80         ; flags         flags for: never net boot, boot first, etc.
+        ; bootVars ATPRAMrec
+            dc.b    0           ; nbpVars       address of last server that we booted off of
+            dc.b    0           ; timeout       seconds to wait for bootserver response
+            dcb.l   4, "PWD "   ; signature     image signature
+            dcb.b   32          ; userName      an array of char, no length byte
+            dcb.b   8           ; password      ditto
+            dc.w    $8888       ; serverNum     the server number
+            dcb.b   8           ; padding to 68b
+
+
+pRamTable
+            dc.l    $00040004
+            dc.l    $000300AB
+            dc.l    $000100BC
+            dc.l    $00200020
+            dc.l    $0020008B
+            dc.l    $00000000
+
+
+            align   10 ; fill up the boot blocks
