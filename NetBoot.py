@@ -226,6 +226,9 @@ GotDrvNum
             lea     gDriveNum,A0
             move.w  D3,(A0)
 
+    ; Work around a bug in the .netBOOT ToExtFS hook
+            bsr     fixDriveNumBug
+
     ; Clean up our stack frame
             movem.l (SP)+,A2-A4/D3
             unlk    A6
@@ -282,6 +285,112 @@ return
 error
             dc.w    $A9C9
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; The .netBOOT driver installs a ToExtFS hook that triggers on _MountVol
+; and calls our mountSysVol. The hook routine checks that the drive number
+; is 4. On machines with >2 existing drives, this check fails, and we
+; never get called (i.e. Mini vMac).
+
+; The solution is to head patch the .netBOOT ToExtFS hook. We use a
+; one-shot patch on _MountVol to gain control after the hook is installed
+; but before it is called, and install our new hook.
+
+bystanderTrap       equ     $A00F ; _MountVol
+gTheirDriveNum      dc.w    0
+gOrigBystanderTrap  dc.l    0
+gOrigExtFS          dc.l    0
+NetBootName         dc.b    8, ".netBOOT", 0
+
+fixDriveNumBug
+    ; Get the .netBOOT driver refnum (only to search for the right drive)
+            lea     -$32(A6),A0                 ; Use our caller's stack frame
+            bsr     clearblock
+            lea     NetBootName,A1
+            move.l  A1,$12(A0)                  ; IOFileName
+            dc.w    $A000                       ; _Open
+            bne     error
+            move.w  $18(A0),D0                  ; Result in IORefNum
+
+    ; Search for the drive with that number in dQRefNum
+            lea     $308,A1                     ; DrvQHdr
+            lea     2(A1),A0                    ; Treat qHead like qLink.
+nbFindLoop  move.l  (A0),A0                     ; follow qLink
+            cmp.w   8(A0),D0                    ; is the dQRefNum the .netBOOT driver?
+            beq.s   nbFound                     ; then we found the .netBOOT drive
+            cmp.l   6(A1),A0                    ; have we reached qTail?
+            beq     error                       ; then we didn't find the .netBOOT drive
+            bra.s   nbFindLoop
+nbFound     move.w  6(A0),D0                    ; Get dqDrive (drive number)
+
+    ; Save drivenum in a global for our patch to use
+            lea     gTheirDriveNum,A0
+            move.w  D0,(A0)
+
+    ; Only install the patch if we need to
+            cmp.w   #4,D0                       ; A drivenum of 4 will work anyway
+            beq     installOneshotPatch
+            rts
+
+
+; Install a self-disabling patch on _MountVol
+installOneshotPatch
+            move.w  #bystanderTrap,D0           ; Save original in a global
+            dc.w    $A346 ; _GetOSTrapAddress
+            lea     gOrigBystanderTrap,A1
+            move.l  A0,(A1)
+
+            move.w  #bystanderTrap,D0           ; Install
+            lea     oneshotPatch,A0
+            dc.w    $A247 ; _SetOSTrapAddress
+
+            rts
+
+
+; Our _MountVol patch 
+oneshotPatch
+            clr.l   -(SP)
+            movem.l D0/D1/A0/A1,-(SP)           ; Save "OS trap" registers
+
+            move.l  $3F2,A0                     ; Save the ToExtFS hook in a global to call later
+            lea     gOrigExtFS,A1
+            move.l  A0,(A1)
+            lea     toExtFSPatch,A0             ; Install the ToExtFS head patch
+            move.l  A0,$3F2
+
+            lea     gOrigBystanderTrap,A0       ; Remove this patch from _MountVol
+            move.l  (A0),A0
+            move.l  A0,16(SP)
+            move.w  #bystanderTrap,D0
+            dc.w    $A047 ; _SetTrapAddress
+
+            movem.l (SP)+,D0/D1/A0/A1
+            rts
+
+
+; Our head patch on the ToExtFS hook
+toExtFSPatch
+            movem.l A0-A4/D1-D2,-(SP)           ; Save the same registers at the real ToExtFS hook
+
+            cmp.b   #$F,$6+1(A0)                ; Check for a _MountVol call (IOTrap+1)
+            bne.s   hookReturn
+
+            lea     gTheirDriveNum,A1           ; Check for the CORRECT drive number,
+            move.w  (A1),D0                     ; instead of erroneously checking for 4.
+            cmp.w   $16(A0),D0                  ; IODrvNum
+            bne.s   hookReturn
+
+            lea     gOrigExtFS,A1               ; Rejoin the ToExtFS hook AFTER the buggy code
+            move.l  (A1),A1
+hookScan    add.l   #2,A1                       ; Scan for "lea DrvQHdr,A2" (or similar)
+            cmp.w   #$308,2(A1)
+            bne.s   hookScan
+            jmp     (A1)                        ; and enter at that point
+
+hookReturn  movem.l (SP)+,A0-A4/D1-D2
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 clearblock
             clr.w   $0(A0)
