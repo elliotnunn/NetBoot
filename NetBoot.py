@@ -707,29 +707,3 @@ while 1:
 
     else:
         print('unknown ddp payload', ddp_proto_type)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# ;            clr.l   D1
-# ;            cmp.b   #1,$2C(A2)      ; ? ioPosMode == fsFromStart
-# ;            beq.s   dontAddMark
-# ;            move.l  $10(A3),D1      ; add dCtlPosition
-# ;dontAddMark
-# ;            cmp.b   #3,$2C(A2)      ; ? ioPosMode == fsFromMark
-# ;            bne.s   dontAddOffset
-# ;            add.l   $2E(A2),D1      ; add ioPosOffset
-# ;dontAddOffset
-
