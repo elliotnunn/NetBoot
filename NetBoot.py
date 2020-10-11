@@ -329,7 +329,7 @@ nbFound     move.w  6(A0),D0                    ; Get dqDrive (drive number)
 
     ; Only install the patch if we need to
             cmp.w   #4,D0                       ; A drivenum of 4 will work anyway
-            beq     installOneshotPatch
+            bne     installOneshotPatch
             rts
 
 
