@@ -83,7 +83,7 @@ bootVars
             dcb.l   4, "PWD "   ; signature     image signature
             dcb.b   32          ; userName      an array of char, no length byte
             dcb.b   8           ; password      ditto
-            dc.w    $8888       ; serverNum     the server number
+            dc.w    $0000       ; serverNum     the server number
             dcb.b   8           ; padding to 68b
 
 

@@ -718,7 +718,7 @@ while 1:
                         99,                 # (My) Socket number
                         0,                  # (My) Enumerator (i.e. which of many possible names for 99/99 is this?)
                     ) +
-                    pstring(nbp_tuples[0][5]) + pstring('BootServer') + pstring('*')
+                    pstring(nbp_tuples[0][4]) + pstring('BootServer') + pstring('*')
                 ),
                 (MCAST_ADDR, MCAST_PORT))
 
