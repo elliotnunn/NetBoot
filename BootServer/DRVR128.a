@@ -1,0 +1,200 @@
+DrvrBase
+            dc.w    $4C00           ; dCtlEnable dStatEnable dNeedLock
+            dc.w    0               ; delay
+            dc.w    0               ; evt mask
+            dc.w    0               ; menu
+
+            dc.w    DrvrOpen-DrvrBase
+            dc.w    0 ; no Prime routine
+            dc.w    DrvrControl-DrvrBase
+            dc.w    DrvrStatus-DrvrBase
+            dc.w    DrvrClose-DrvrBase
+            dc.b    11, '.BootServer'
+
+; a0=iopb, a1=dce on entry to all of these...
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrOpen
+    ; TODO: Move this somewhere that it can respond to AppleTalk going up/down
+
+    ; Don't care about the caller PB, so use A0 for our AppleTalk PB instead
+            move.l  A0,-(SP)
+            lea     PB,A0
+
+    ; Open .MPP
+    ; TODO: check globals on old ROMs before trying
+            clr.b   $1B(A0)                                 ; IOPermssn = whatever is allowed
+            lea     MPPString,A1                            ; IOFileName = .MPP
+            move.l  A1,$12(A0)
+            dc.w    $A000                                   ; _Open
+            bne.s   openFail
+
+    ; Open a DDP socket: "POpenSkt" via direct call to .MPP
+            move.w  #248,$1A(A0)                            ; csCode = openSkt
+            clr.b   $1C(A0)                                 ; socket = auto-assign
+            lea     SocketListener,A1
+            move.l  A1,$1E(A0)                              ; listener
+            dc.w    $A004                                   ; _Control
+            bne.s   openFail
+
+    ; Prepare a Name Table Entry for NBP
+    ; TODO: replace with static Name Table Entry struct below
+            pea     NTE
+            pea     ObjStr
+            pea     TypStr
+            pea     ZonStr
+            clr.w   D0
+            move.b  $1C(A0),D0
+            move.w  D0,-(SP)
+            bsr     NBPSetNTE
+
+    ; Advertise our socket via NBP: "PRegisterName"
+            move.w  #253,$1A(A0)                            ; csCode = registerName
+            move.b  #7,$1C(A0)                              ; interval = ~1sec
+            move.b  #5,$1D(A0)                              ; count = 5
+            lea     NTE,A1
+            move.l  A1,$1E(A0)                              ; entityPtr = our NTE
+            move.b  #0,$22(A0)                              ; verifyFlag = don't
+            dc.w    $A004                                   ; _Control
+
+openFail
+            move.w  $10(A0),D0                              ; Just return whatever error we got
+            move.l  (SP)+,A0
+            move.w  D0,$10(A0)
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrClose
+            move.w  #0,$10(A0)      ; ioResult
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrControl
+            move.w  #-18,$10(A0)     ; ioResult
+            bra     DrvrFinish
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrStatus
+            move.w  #-18,$10(A0)     ; ioResult
+            bra     DrvrFinish
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; Elliot: this can probably be cleaned up, because all our calls are synchronous
+DrvrFinish
+            move.w  6(A0),D1        ; iopb.ioTrap
+            btst    #9,D1           ; noQueueBit
+            bne.s   DrvrNoIoDone
+            move.l  $8FC,-(SP)      ; jIODone
+DrvrNoIoDone
+            rts
+
+
+
+
+SocketListener
+            dc.w    $A9FF
+
+
+
+
+
+
+MPPString dc.b 4, ".MPP", 0
+
+ObjStr dc.b 4, "0000", 0
+TypStr dc.b 10, "BootServer", 0
+ZonStr dc.b 1, "*"
+
+
+
+; Names table entry for NBP
+PB
+            dcb.b   108
+
+NTE
+            dcb.b   108
+
+
+
+; AddrBlock is Net(w)/Node(b)/Socket(b)
+
+
+; NTElement               RECORD 0
+; nteAddress               ds     AddrBlock       ; offset: $0 (0)        ; network address of entity
+; filler                   ds.b   1               ; offset: $4 (4)
+; entityData               ds.b   99              ; offset: $5 (5)        ; Object, Type & Zone
+; sizeof                   EQU *                  ; size:   $68 (104)
+;                         ENDR
+
+; NamesTableEntry         RECORD 0
+; qNext                    ds.l   1               ; offset: $0 (0)        ; ptr to next NTE
+; nt                       ds     NTElement       ; offset: $4 (4)
+; sizeof                   EQU *                  ; size:   $6C (108)
+;                         ENDR
+
+
+
+
+
+
+
+
+
+
+
+
+
+;   PROCEDURE   NBPSetNTE(  NTEptr:Ptr;NBPObject,NBPType,NBPZone:STRING[32];Socket:INTEGER);
+
+;   Builds an Names Table Entry using the parms. Calls NBPSetEntity to fill in the strings.
+;   This clears the next entry pointer in the NTE. Only LSB 8 bits of Socket are used.
+
+NBPSetNTE
+                MOVEM.L     A0-A3/D0,-(SP)
+                MOVE.W      24(SP),D0           ;D0=Socket
+                MOVEM.L     26(SP),A0-A3        ;A0->Zone,A1->Type,A2->Object,A3->NTE
+                CLR.L       (A3)+               ;clear next ptr
+                MOVE.B      D0,3(A3)            ;set socket [TupleSkt]
+
+                PEA         5(A3)               ;set Buffer ptr [TupleName]
+                PEA         (A2)                ;Object
+                PEA         (A1)                ;Type
+                PEA         (A0)                ;Zone
+                JSR         NBPSetEntity        ;fill in the strings
+
+                MOVEM.L     (SP)+,A0-A3/D0
+                MOVE.L      (SP),18(SP)
+                ADDA.L      #18,SP
+                RTS
+
+
+;   PROCEDURE   NBPSetEntity(Buffer:Ptr;NBPObject,NBPType,NBPZone:STRING[32])
+;   Concatenates the strings Object,Type, & Zone in Buffer
+
+NBPSetEntity
+                MOVEM.L     A0/A1/D0,-(SP)
+                MOVEQ       #28,D0
+                BSR.S       MoveAstring         ;move the Object
+                MOVE.W      #24,D0
+                BSR.S       MoveAstring         ;move the Type
+                MOVE.W      #20,D0
+                BSR.S       MoveAstring         ;move the Zone
+                MOVEM.L     (SP)+,A0/A1/D0
+                MOVE.L      (SP),16(SP)
+                ADDA.L      #16,SP
+                RTS
+MoveAstring
+                MOVEA.L     (SP,D0.W),A0        ;get source string addr
+                CLR.L       D0
+                MOVE.B      (A0),D0             ;setup len and adjust source addr
+                ADDQ.L      #1,D0               ;adj for str len byte
+                MOVEA.L     32(SP),A1           ;setup dest addr
+                ADD.L       D0,32(SP)           ;update dest addr
+                DC.W        $A22E ; _BlockMoveData
+                RTS
+

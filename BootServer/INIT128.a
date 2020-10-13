@@ -1,0 +1,85 @@
+myUnitNum       equ     53
+myDRefNum       equ     ~myUnitNum
+
+    ; Get our DRVR resource
+            subq    #4,SP
+            move.l  #'DRVR',-(SP)
+            move.w  #128,-(SP)
+            dc.w    $A81F ; _Get1Resource
+            move.l  (SP)+,A3
+
+            move.l  A3,D0
+            bne.s   noGetResErr
+            dc.w    $A9FF                                   ; _Debugger
+noGetResErr
+
+    ; Size it for the copy
+            move.l  A3,A0
+            dc.w    $A025 ; _GetHandleSize
+            move.l  D0,D4
+
+    ; Create a nonrelocatable block in the system heap
+            dc.w    $A51E ; _NewPtrSys
+            move.l  A0,A4
+
+            move.l  A4,D0
+            bne.s   noNewPtrErr
+            dc.w    $A9FF                                   ; _Debugger
+noNewPtrErr
+
+    ; Copy it there
+            move.l  (A3),A0
+            move.l  A4,A1
+            move.l  D4,D0
+            dc.w    $A02E ; _BlockMove (yes, of code)
+
+    ; No further use for our resource
+            move.l  A3,-(SP)
+            dc.w    $A9A3 ; _ReleaseResource
+
+    ; Install the driver in the unit table
+            move.l  A4,A0
+            move.l  #myDRefNum,D0
+            dc.w    $A43D                                   ; _DrvrInstall ReserveMem
+
+            beq.s   noDrvrInstallErr
+            dc.w    $A9FF                                   ; _Debugger
+noDrvrInstallErr
+
+    ; Get DCE handle of installed driver
+            move.l  $11C,A0                                 ; UTableBase
+            add.l   #myUnitNum*4,A0
+            move.l  (A0),A3
+
+    ; Lock it down
+            move.l  A3,A0
+            dc.w    $A029                                   ; _HLock
+
+    ; Populate the empty DCE that DrvrInstall left us
+            move.l  (A3),A0                                 ; A0 = dce ptr
+
+            move.l  A4,0(A0)                                ; dCtlDriver is pointer (not hdl)
+
+            move.w  0(A4),D0                                ; drvrFlags
+            and.w   #~$0040,D0                              ; Clear dRAMBased bit (to treat dCtlDriver as a pointer)
+            move.w  D0,4(A0)                                ; dCtlFlags
+
+    ; Copy these other values that apparently the Device Mgr forgets
+            move.w  2(A4),$22(A0)                           ; drvrDelay to dCtlDelay
+            move.w  4(A4),$24(A0)                           ; drvrEMask to dCtlEMask
+            move.w  6(A4),$26(A0)                           ; drvrMenu to dCtlMenu
+
+    ; Open the driver
+            lea     -$32(SP),SP
+            move.l  SP,A0
+            clr.b   $1B(A0)                                 ; IOPermssn = whatever is allowed
+            lea     $12(A4),A1                              ; IOFileName = directly from the DRVR
+            move.l  A1,$12(A0)
+            dc.w    $A000                                   ; _Open
+            lea     $32(SP),SP
+
+            beq.s   noDrvrOpenErr
+            dc.w    $A9FF                                   ; _Debugger
+noDrvrOpenErr
+
+            rts

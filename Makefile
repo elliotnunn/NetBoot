@@ -33,3 +33,27 @@ BootstrapFloppy.dsk: BootstrapFloppy/System.rdump
 
 testflop: BootstrapFloppy.dsk
 	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom $<
+
+
+
+
+
+
+
+BootServer.INIT: FORCE
+	./buildapp.bash BootServer
+
+testserver: BootServer.INIT
+	rm -rf /tmp/bootserv; mkdir /tmp/bootserv
+	cp systools607.dsk bootserv.tmp
+	DumpHFS systools607.dsk /tmp/bootserv
+	cp MacsBug\ 6.2.2/* /tmp/bootserv/System\ Folder
+	cp BootServer.INIT* /tmp/bootserv/System\ Folder
+	MakeHFS -i /tmp/bootserv -s 1440k bootserv.tmp
+	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom bootserv.tmp
+
+
+
+
+
+FORCE:
