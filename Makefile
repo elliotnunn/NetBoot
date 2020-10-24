@@ -17,13 +17,8 @@ image: systools607.dsk.a Makefile
 	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom /tmp/system6.dsk
 
 
-systools607.dsk.a: systools607.dsk
-	python3 -c 'for b in open("systools607.dsk","rb").read(): print(" dc.b $$%02X" % b)' >systools607.dsk.a
-
-
 Bootstrap.bin: Bootstrap.a
 	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
-
 
 BootstrapFloppy/System.rdump: Bootstrap.bin
 	rfx cp $< $@//boot/1
@@ -31,7 +26,7 @@ BootstrapFloppy/System.rdump: Bootstrap.bin
 BootstrapFloppy.dsk: BootstrapFloppy/System.rdump
 	MakeHFS -n 'NetBoot Enabler' -i BootstrapFloppy -s 1440k -d now $@
 
-testflop: BootstrapFloppy.dsk
+testclient: BootstrapFloppy.dsk
 	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom $<
 
 
@@ -40,7 +35,17 @@ testflop: BootstrapFloppy.dsk
 
 
 
-BootServer.INIT: FORCE
+BootWrapper.bin: BootWrapper.a
+	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
+
+payload: BootWrapper.bin
+	#echo ' dcb.w 10000, $$A9FF' >/tmp/xasm
+	#vasm-1/vasmm68k_mot -quiet -Fbin -pic -o /tmp/yasm /tmp/xasm
+	#cat /tmp/yasm >payload
+	cat BootWrapper.bin systools607.dsk >payload
+	python3 snefru_hash.py payload
+
+BootServer.INIT: payload FORCE
 	./buildapp.bash BootServer
 
 testserver: BootServer.INIT
@@ -49,8 +54,11 @@ testserver: BootServer.INIT
 	DumpHFS systools607.dsk /tmp/bootserv
 	cp MacsBug\ 6.2.2/* /tmp/bootserv/System\ Folder
 	cp BootServer.INIT* /tmp/bootserv/System\ Folder
-	MakeHFS -i /tmp/bootserv -s 1440k bootserv.tmp
+	MakeHFS -i /tmp/bootserv -s 10m bootserv.tmp
 	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom bootserv.tmp
+
+pyserver: payload FORCE
+	./NetBoot.py payload
 
 
 

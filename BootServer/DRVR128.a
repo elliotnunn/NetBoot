@@ -18,25 +18,31 @@ DrvrBase
 DrvrOpen
     ; TODO: Move this somewhere that it can respond to AppleTalk going up/down
 
-    ; Don't care about the caller PB, so use A0 for our AppleTalk PB instead
-            move.l  A0,-(SP)
-            lea     PB,A0
+    ; Don't care about the caller PB, so use A0 as a scratch register
+            movem.l A0-A1,-(SP)
+
+    ; Modify the socket listener code for quick access to driver globals
+            lea     editLeaDCE+2,A0
+            move.l  A1,(A0)
 
     ; Open .MPP
     ; TODO: check globals on old ROMs before trying
+            lea     PB,A0
             clr.b   $1B(A0)                                 ; IOPermssn = whatever is allowed
-            lea     MPPString,A1                            ; IOFileName = .MPP
-            move.l  A1,$12(A0)
+            lea     MPPString,A2                            ; IOFileName = .MPP
+            move.l  A2,$12(A0)
             dc.w    $A000                                   ; _Open
             bne.s   openFail
+            move.w  $18(A0),$16(A1)                         ; save MPP refnum in dctlStorage
 
     ; Open a DDP socket: "POpenSkt" via direct call to .MPP
             move.w  #248,$1A(A0)                            ; csCode = openSkt
             clr.b   $1C(A0)                                 ; socket = auto-assign
-            lea     SocketListener,A1
-            move.l  A1,$1E(A0)                              ; listener
+            lea     SocketListener,A2
+            move.l  A2,$1E(A0)                              ; listener
             dc.w    $A004                                   ; _Control
             bne.s   openFail
+            move.b  $1C(A0),$14(A1)                         ; save socket number in dCtlStorage
 
     ; Prepare a Name Table Entry for NBP
     ; TODO: replace with static Name Table Entry struct below
@@ -53,14 +59,14 @@ DrvrOpen
             move.w  #253,$1A(A0)                            ; csCode = registerName
             move.b  #7,$1C(A0)                              ; interval = ~1sec
             move.b  #5,$1D(A0)                              ; count = 5
-            lea     NTE,A1
-            move.l  A1,$1E(A0)                              ; entityPtr = our NTE
-            move.b  #0,$22(A0)                              ; verifyFlag = don't
+            lea     NTE,A2
+            move.l  A2,$1E(A0)                              ; entityPtr = our NTE
+            move.b  #1,$22(A0)                              ; verifyFlag = do
             dc.w    $A004                                   ; _Control
 
 openFail
             move.w  $10(A0),D0                              ; Just return whatever error we got
-            move.l  (SP)+,A0
+            movem.l (SP)+,A0-A1
             move.w  D0,$10(A0)
             rts
 
@@ -73,36 +79,252 @@ DrvrClose
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrControl
-            move.w  #-18,$10(A0)     ; ioResult
-            bra     DrvrFinish
+            cmp.w   #65,$1A(A0)
+            beq.s   accRun
+            move.w  #-17,$10(A0)     ; ioResult = controlErr
+            rts
+
+accRun
+            move.w  #0,$10(A0)       ; ioResult = noErr (never need to return an error)
+
+            ; figure out the packet
+            lea     ReceivedPacket,A2
+            move.w  (A2)+,D0 ; length
+
+            cmp.b   #1,(A2)
+            beq     ReplyToUserRecordRequest
+            cmp.b   #3,(A2)
+            beq     ReplyToImageRequest
+
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+PushReturnAddress
+            clr.l   -(SP)
+            clr.l   -(SP)
+            clr.l   -(SP)
+            clr.l   -(SP)
+            clr.w   -(SP)
+
+            move.l  ReturnAddress,D0
+            move.b  #10,1+15(SP)
+            move.b  D0,1+13(SP)
+            asr.w   #4,D0
+            asr.w   #4,D0
+            move.b  D0,1+11(SP)
+            swap    D0
+            move.w  D0,1+7(SP)
+
+            move.l  18(SP),-(SP)
+            rts
+
+
+ReplyToUserRecordRequest ; A0=iopb A1=dce A2=pkt
+            bclr.b  #5,4(A1)                ; clear dNeedTime: done with this packet
+
+            move.l  SP,A3
+
+            move.w  #586/2-1,D0             ; Push the whole packet
+clrloop     clr.w   -(SP)
+            dbra    D0,clrloop
+            move.w  #$0201,(SP)             ; user record reply v1
+            move.w  2(A2),2(SP)             ; copy osID
+            move.l  4(A2),4(SP)             ; copy userData (timestamp)
+            move.w  #512,8(SP)              ; blockSize
+            move.w  #0,10(SP)               ; imageID
+            move.w  #0,12(SP)               ; result (error code)
+            move.l  #(EndOfPayload-StartOfPayload+511)>>9,14(SP)
+            move.l  SP,A4
+
+            ; This code should be deduplicated
+            bsr     PushReturnAddress
+            lea     1(SP),A5                ; the "odd" base of the address struct
+
+            move.w  #0,-(SP)                ; Push the WriteDataStructure
+            move.l  A4,-(SP)
+            move.w  #586,-(SP)
+            move.l  A5,-(SP)                ; the first odd address of the WDS
+            move.w  #16,-(SP)
+            move.l  SP,A4
+
+            bsr     WriteDDP
+            move.l  A3,SP
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; The money shot
+; Send as many packets as we can in six ticks
+; Also be fairly canny with the bitmap
+
+; Internally: D7=ticks D6=whichblock D5=scratch
+
+ReplyToImageRequest ; A0=iopb A1=dce A2=pkt D0=pktlen
+            moveq   #0,D4
+            move.w  D0,D4
+            subq    #8,D4
+            asl.l   #3,D4
+            cmp.w   #(EndOfPayload-StartOfPayload+511)>>9,D4
+            blo.s   dontsubtract
+            move.l  #(EndOfPayload-StartOfPayload+511)>>9,D4
+dontsubtract
+
+
+            
+
+
+
+
+
+            move.l  $16A,D7 ; Ticks
+            moveq.l #-1,D6 ; Block counter
+blockloop   addq.l  #1,D6
+            cmp.w   D4,D6
+            bhs     endsend
+
+            move.w  D6,D5
+            asr.w   #3,D5
+            bclr.b  D6,8(A2,D5.W)
+            beq.s   blockloop
+
+
+            ; okay, so I am committed to sending this packet
+
+
+
+
+            move.l  SP,A3
+
+
+
+            ; This code should be deduplicated
+            bsr     PushReturnAddress
+            lea     1(SP),A5                ; the "odd" base of the address struct
+
+
+
+            move.w  D6,-(SP)                ; blocknum (first chunk of packet)
+            move.w  2(A2),-(SP)             ; image ID
+            move.w  #$0401,-(SP)            ; image data v1
+            move.l  SP,A4
+
+            move.w  #0,-(SP)                ; Push the WriteDataStructure
+
+
+
+
+            lea     StartOfPayload,A0
+            moveq   #0,D5
+            move.w  D6,D5
+            lsl.l   #4,D5
+            lsl.l   #5,D5
+            add.l   D5,A0
+            move.l  A0,-(SP)
+
+
+
+
+            move.w  #512,-(SP)
+            move.l  A4,-(SP)
+            move.w  #6,-(SP)
+            move.l  A5,-(SP)                ; the first odd address of the WDS
+            move.w  #16,-(SP)
+            move.l  SP,A4
+
+            bsr     WriteDDP
+
+            move.l  A3,SP
+
+
+
+
+
+; check whether we need to yield time
+            move.l  $16A,D5
+            sub.l   D7,D5
+            cmp.l   #6,D5
+            bhi.s   defersend
+            bra     blockloop
+
+
+
+endsend
+            bclr.b  #5,4(A1)                ; clear dNeedTime: done with this packet
+defersend
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+WriteDDP ; pass in the WDS as a4
+            move.l  A0,-(SP)
+            lea     -$32(SP),SP
+            move.l  SP,A0
+
+            move.w  $16(A1),$18(A0)         ; IORefNum = dctlStorage.low
+            move.w  #246,$1A(A0)            ; csCode = writeDDP
+            clr.l   $C(A0)                  ; IOCompletion = NULL
+            move.b  $14(A1),$1C(A0)         ; get socket number from dCtlStorage
+            move.b  #1,$1D(A0)              ; set checksumFlag
+            move.l  A4,$1E(A0)              ; wdsPointer to our WriteDataStructure
+            dc.w    $A004                   ; _Control
+
+            lea     $32(SP),SP
+            move.l  (SP)+,A0
+
+            rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrStatus
             move.w  #-18,$10(A0)     ; ioResult
-            bra     DrvrFinish
+            rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-; Elliot: this can probably be cleaned up, because all our calls are synchronous
-DrvrFinish
-            move.w  6(A0),D1        ; iopb.ioTrap
-            btst    #9,D1           ; noQueueBit
-            bne.s   DrvrNoIoDone
-            move.l  $8FC,-(SP)      ; jIODone
-DrvrNoIoDone
-            rts
-
-
-
-
 SocketListener
-            dc.w    $A9FF
+; A0  Reserved for internal use by the .MPP driver. You must preserve this register until after the ReadRest routine has completed execution.
+; A1  Reserved for internal use by the .MPP driver. You must preserve this register until after the ReadRest routine has completed execution.
+; A2  Pointer to the .MPP driver's local variables. Elliot says: the frame and packet header ("RHA") are at offset 1 from A2 (keeps the 2-byte fields aligned)
+; A3  Pointer to the first byte in the RHA past the DDP header bytes (the first byte after the DDP protocol type field).
+; A4  Pointer to the ReadPacket routine. The ReadRest routine starts 2 bytes after the start of the ReadPacket routine.
+; A5  Free for your use before and until your socket listener calls the ReadRest routine.
+; D0  Lower byte is the destination socket number of the packet.
+; D1  Word indicating the number of bytes in the DDP packet left to be read (that is, the number of bytes following the DDP header).
+; D2  Free for your use.
+; D3  Free for your use.
 
+    ; Parse the packet at accRun time
+editLeaDCE  lea     $12345678,A5        ; live-edited to point to DCE
+            bset.b  #5,4(A5)            ; raise dNeedTime in dCtlFlags
 
+    ; Parse the "return address" from the header
+            cmp.b   #1,1+2(A2)          ; test DDP header type
+            bne.s   longhdr
 
+shorthdr    moveq.l #0,D2               ; network number = 0
+            move.w  1+1(A2),D2          ; node number
+            move.b  1+6(A2),D2          ; socket numder
+            bra.s   doneWithHeader
+longhdr     move.w  1+9(A2),D2          ; network number
+            swap    D2
+            move.b  1+12(A2),D2         ; node number
+            asl.w   #4,D2
+            asl.w   #4,D2
+            move.b  1+14(A2),D2         ; socket number
+doneWithHeader
 
+    ; Save the return address in a standard format
+            lea     ReturnAddress,A5
+            move.l  D2,(A5)
 
+    ; Save the return address and packet body
+            lea     ReceivedPacket,A3
+            move.w  D1,D3               ; odd that I need to use this register?
+            move.w  D3,(A3)+
+            jmp     2(A4)               ; ReadRest (to A3)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 MPPString dc.b 4, ".MPP", 0
 
@@ -110,6 +332,9 @@ ObjStr dc.b 4, "0000", 0
 TypStr dc.b 10, "BootServer", 0
 ZonStr dc.b 1, "*"
 
+
+ReturnAddress dc.l 0
+ReceivedPacket dcb.b 2+586
 
 
 ; Names table entry for NBP
@@ -198,3 +423,8 @@ MoveAstring
                 DC.W        $A22E ; _BlockMoveData
                 RTS
 
+
+            align   9
+StartOfPayload
+            incbin  "../payload"
+EndOfPayload

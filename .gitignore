@@ -2,6 +2,7 @@
 edit.rom
 .DS_Store
 BootstrapFloppy/System.rdump
-Bootstrap.bin
 BootstrapFloppy.dsk
 BootServer.INIT*
+*.bin
+payload

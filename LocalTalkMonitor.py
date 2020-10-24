@@ -52,15 +52,16 @@ while 1:
     elif llap_proto_type == 2:
         # ddp, long (what should we do with this extra information?)
         if len(data) < 13: continue
-        ddp_len, ddp_cksum, ddp_dest_net, ddp_src_net, ddp_dest_node, ddp_src_node, ddp_dest_socket, ddp_src_socket = struct.unpack_from('>4H5B', data)
+        ddp_len, ddp_cksum, ddp_dest_net, ddp_src_net, ddp_dest_node, ddp_src_node, ddp_dest_socket, ddp_src_socket, ddp_proto_type = struct.unpack_from('>4H5B', data)
         ddp_hop_count = (ddp_len >> 10) & 0xF
         ddp_len &= 0x3FF
         data = data[13:ddp_len]
+        print(ddp_src_net, ddp_dest_net)
     else:
         # llap control packet -- can probably ignore!
         continue
 
-    print(f'datagram {llap_src_node}:{ddp_src_socket}->{llap_dest_node}:{ddp_dest_socket}')
+    print(f'datagram {llap_proto_type} {llap_src_node}:{ddp_src_socket}->{llap_dest_node}:{ddp_dest_socket}')
 
     if ddp_proto_type == 2: # NBP
         if len(data) < 2: continue
@@ -85,15 +86,23 @@ while 1:
             print(f'    net:node:sock={t[0]}:{t[1]}:{t[2]} enum={t[3]} object:type@zone={t[4]}:{t[5]}@{t[6]}')
 
     elif ddp_proto_type == 10: # ATBOOT
-        if len(data) < 2: continue
+        if len(data) < 2:
+            print('malformed short packet %r' % data.hex())
+            continue
         boot_type, boot_vers = struct.unpack_from('>BB', data)
         data = data[2:]
 
         if boot_type == 1:
-            print('    ATBOOT "syn"')
-        if boot_type == 2:
-            print('    ATBOOT "ack"')
+            print('    ATBOOT "syn"', data.hex())
+        elif boot_type == 2:
+            print('    ATBOOT "ack"', data.hex())
         elif boot_type == 3:
-            print('    ATBOOT image request')
+            print('    ATBOOT image request', data.hex())
         elif boot_type == 4:
-            print('    ATBOOT image reply')
+            print('    ATBOOT image reply', data.hex())
+        else:
+            print('    ' + data.hex())
+
+    else:
+        print('Totally unknown DDP type', ddp_proto_type)        
+        print('    ' + data.hex())

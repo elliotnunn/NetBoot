@@ -19,32 +19,8 @@ my_unique_ltoudp_id = b'El' + (os.getpid() & 0xFFFF).to_bytes(2, 'big')
 
 
 
-disk_image = open(path.join(path.dirname(path.abspath(__file__)), 'systools607.dsk'), 'rb').read()
-
-# Strip the Disk Copy header
-if disk_image[0x54:0x56] == b'LK' or disk_image[0x454:0x456] == b'BD':
-    disk_image = disk_image[0x54:]
-    print('Stripped Disk Copy header from image')
-
-
-
-def assemble(the_code):
-    with open('/tmp/vasm.bootblocks', 'w') as f:
-        f.write(the_code)
-
-    try:
-        os.remove('/tmp/vasm.bootblocks.bin')
-    except FileNotFoundError:
-        pass
-
-    assembler = path.join(path.dirname(path.abspath(__file__)), 'vasm-1/vasmm68k_mot')
-    os.system(f'{assembler} -quiet -Fbin -pic -o /tmp/vasm.bootblocks.bin /tmp/vasm.bootblocks')
-
-    with open('/tmp/vasm.bootblocks.bin', 'rb') as f:
-        return f.read()
-
-
-
+import sys
+image = open(sys.argv[1], 'rb').read()
 
 # typedef short (*j_code)(    short       command,  # SP+4 (sign-extend to long)
 #                             DGlobals    *g,       # SP+8
@@ -52,19 +28,6 @@ def assemble(the_code):
 #                             int         **var2);  # SP+16
 
 # We return our OSErr in d0, and leave the 16 bytes of arguments on the stack for the caller to clean
-
-image = assemble(open(path.join(path.dirname(path.abspath(__file__)), 'BootServer/PROC128.a')).read()) + disk_image
-
-
-
-
-image = bytearray(image)
-
-while len(image) % 512 != 512 - 64: image.append(0)
-the_hash = snefru(image)
-while len(image) % 512 != 512 - 16: image.append(0)
-image.extend(the_hash)
-print('Sig:', ''.join(('%02X' % b) for b in image[-16:]))
 
 
 ANY = "0.0.0.0"

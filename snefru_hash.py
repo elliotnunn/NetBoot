@@ -354,8 +354,21 @@ def snefru(inbytes):
 
 
 if __name__ == '__main__':
-    import binascii
-    the_plain = b''.join(n.to_bytes(4, 'big') for n in range(32*1024//4))
-    the_hash = snefru(the_plain)
+    import sys
+    for p in sys.argv[1:]:
+        try:
+            x = open(p, 'rb').read()
 
-    print(binascii.hexlify(the_hash))
+            if len(x) % 512 == 0:
+                maybe_already = snefru(x[:-64])
+                if x[-16:] == maybe_already: continue
+
+            while len(x) % 512 != 512 - 64: x += b'\0'
+            the_hash = snefru(x)
+            while len(x) % 512 != 512 - 16: x += b'\0'
+            x += the_hash
+
+            open(p, 'wb').write(x)
+
+        except Exception as e:
+            print(e)

@@ -13,13 +13,18 @@ myDRefNum       equ     ~myUnitNum
             dc.w    $A9FF                                   ; _Debugger
 noGetResErr
 
+            move.l  A4,A0
+            dc.w    $A025 ; _GetHandleSize
+            sub.l   D0,$10C ; BufPtr
+
+            move.l  (A4),A0
+            move.l  $10C,A1
+            dc.w    $A02E ; _BlockMove
+
             move.l  A4,-(SP)
             dc.w    $A992 ; _DetachResource
 
-            move.l  A4,A0
-            dc.w    $A029 ; _HLock
-
-            move.l  (A4),A4
+            move.l  $10C,A4
 
     ; Install the driver in the unit table
             move.l  A4,A0
