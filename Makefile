@@ -63,5 +63,17 @@ pyserver: payload FORCE
 
 
 
+testpicker: BootPicker.bin FORCE
+	cp sys701-144.img bootpick.tmp
+	dd if=BootPicker.bin of=bootpick.tmp bs=138 seek=1 conv=notrunc
+	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom bootpick.tmp
+
+BootPicker.bin: BootPicker.a
+	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
+
+
+
+
+
 
 FORCE:
