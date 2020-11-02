@@ -348,31 +348,10 @@ hookReturn  movem.l (SP)+,A0-A4/D1-D2
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 clearblock
-            clr.w   $0(A0)
-            clr.w   $2(A0)
-            clr.w   $4(A0)
-            clr.w   $6(A0)
-            clr.w   $8(A0)
-            clr.w   $a(A0)
-            clr.w   $c(A0)
-            clr.w   $e(A0)
-            clr.w   $10(A0)
-            clr.w   $12(A0)
-            clr.w   $14(A0)
-            clr.w   $16(A0)
-            clr.w   $18(A0)
-            clr.w   $1a(A0)
-            clr.w   $1c(A0)
-            clr.w   $1e(A0)
-            clr.w   $20(A0)
-            clr.w   $22(A0)
-            clr.w   $24(A0)
-            clr.w   $26(A0)
-            clr.w   $28(A0)
-            clr.w   $2a(A0)
-            clr.w   $2c(A0)
-            clr.w   $2e(A0)
-            clr.w   $30(A0)
+            move.w  #$32/2-1,D0
+.loop       clr.w   (A0)+
+            dbra    D0,.loop
+            lea     -$32(A0),A0
             rts
 
 
@@ -416,7 +395,7 @@ DrvrOpen
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrPrime
-            movem.l A0-A1/D0-D2,-(SP)
+            movem.l A0-A1/D0-D1,-(SP)
 
             cmp.b   #2,$7(A0)       ; ioTrap == aRdCmd
             bne.s   notRead
@@ -427,11 +406,6 @@ DrvrPrime
     ; D0 = number of bytes
             move.l  $24(A0),D0      ; ioReqCount
             move.l  D0,$28(A0)      ; -> ioActCount
-
-    ; Advance the pointer
-            move.l  D1,D2
-            add.l   D0,D2           ; calculate new position
-            move.l  D2,$10(A1)      ; -> dCtlPosition
 
     ; Do the dirty (we are just about to trash A0, so use it first)
             move.w  #0,$10(A0)      ; ioResult
@@ -453,11 +427,6 @@ notRead
             move.l  $24(A0),D0      ; ioReqCount
             move.l  D0,$28(A0)      ; -> ioActCount
 
-    ; Advance the pointer
-            move.l  D1,D2
-            add.l   D0,D2           ; calculate new position
-            move.l  D2,$10(A1)      ; -> dCtlPosition
-
     ; Do the dirty (we are just about to trash A0, so use it first)
             move.w  #0,$10(A0)      ; ioResult
             move.l  $20(A0),A0      ; ioBuffer
@@ -466,7 +435,7 @@ notRead
             dc.w    $A22E           ; _BlockMoveData
 
 primeFinish
-            movem.l (SP)+,A0-A1/D0-D2
+            movem.l (SP)+,A0-A1/D0-D1
             bra     DrvrFinish
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
