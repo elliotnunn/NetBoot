@@ -1,13 +1,14 @@
 ; Inputs: append 1 or more Pascal strings, followed by zero byte
 ; Outputs: D0 = index of selected string, Ao = pointer to selected string
 
+_BoundaryLabelAtStartOfBootPicker_
 
 ; Aesthetic parameters
-kMinWid		equ 70		; min width to leave for button label
-kBtnHt		equ 20		; should always be 20 because text won't move
-kBtnGap		equ 13
-kPadX		equ 5+26	; due to border, padding=6 would leave 1 white pixel
-kPadY		equ 5+13
+.kMinWid	equ 70		; min width to leave for button label
+.kBtnHt		equ 20		; should always be 20 because text won't move
+.kBtnGap	equ 13
+.kPadX		equ 5+26	; due to border, padding=6 would leave 1 white pixel
+.kPadY		equ 5+13
 
 
 ; Save all the stuff that we whack
@@ -26,7 +27,7 @@ kPadY		equ 5+13
 		move.l	A0,$9CE+4			; Save in ToolScratch+4 to enable head-patch
 
 		move.w	#$A8AD,D0			; _PtInRect
-		lea		MyPtInRect,A0
+		lea		.MyPtInRect,A0
 		dc.w	$A047				; _SetTrapAddress
 
 
@@ -43,19 +44,19 @@ kPadY		equ 5+13
 
 
 ; Copy a stub alert table to the stack
-		move.l	#MyDSAlertTabEnd-MyDSAlertTabStart,D0
+		move.l	#.MyDSAlertTabEnd-.MyDSAlertTabStart,D0
 		sub.l	D0,SP
 		move.l	SP,A1
-		lea		MyDSAlertTabStart,A0
+		lea		.MyDSAlertTabStart,A0
 		dc.w	$A22E ; _BlockMoveData
 
 
 ; First pass: calculate box width, putting shortest string width into D5
-		moveq.l	#kMinWid,D5
-		lea		TrailingList,A0						; A0 = current pstring ptr
-dswLoop
+		moveq.l	#.kMinWid,D5
+		lea		.TrailingList,A0					; A0 = current pstring ptr
+.dswLoop
 		tst.b	(A0)
-		beq.s	dswDone
+		beq.s	.dswDone
 
 		move.l	A0,-(SP)
 		clr.w	-(SP)
@@ -72,21 +73,21 @@ dswLoop
 		moveq.l	#1,D0								; increment the pstring ptr
 		add.b	(A0),D0
 		add.l	D0,A0
-		bra.s	dswLoop
-dswDone
+		bra.s	.dswLoop
+.dswDone
 
 
 ; Second pass: create a button list object in the DS alert table
 		move.w	(SP)+,D7							; pop NumEntries from DS table
 
-		move.l	#((kPadY)<<16)|(kPadX),D2			; D2 = current button's topleft
-		move.l	#((kPadY+kBtnHt)<<16)|(kPadX+4+4),D3; D3 = current button's botright
+		move.l	#((.kPadY)<<16)|(.kPadX),D2			; D2 = current button's topleft
+		move.l	#((.kPadY+.kBtnHt)<<16)|(.kPadX+4+4),D3; D3 = current button's botright
 		add.w	D5,D3								; ...including width of the text
 		moveq.l	#0,D6								; D6 = button counter
-		lea		TrailingList,A0						; A0 = current pstring ptr
-dsbLoop
+		lea		.TrailingList,A0					; A0 = current pstring ptr
+.dsbLoop
 		tst.b	(A0)
-		beq.s	dsbDone
+		beq.s	.dsbDone
 
 		move.w	D6,-(SP)							; push procedure object ID (base $8000)
 		add.w	#$8000,(SP)
@@ -95,15 +96,15 @@ dsbLoop
 		move.w	D6,-(SP)							; push string object ID (base $C000)
 		add.w	#$C000,(SP)
 												; increment...
-		add.l	#(kBtnHt+kBtnGap)<<16,D2			; the button's top edge
-		add.l	#(kBtnHt+kBtnGap)<<16,D3			; the button's bottom edge
+		add.l	#(.kBtnHt+.kBtnGap)<<16,D2			; the button's top edge
+		add.l	#(.kBtnHt+.kBtnGap)<<16,D3			; the button's bottom edge
 		addq.w	#1,D6								; the button counter
 		moveq.l	#1,D0								; the pstring ptr
 		add.b	(A0),D0
 		add.l	D0,A0
-		bra.s	dsbLoop
+		bra.s	.dsbLoop
 
-dsbDone												; done looping, push a header for this object...
+.dsbDone											; done looping, push a header for this object...
 		move.w	D6,-(SP)							; the number of buttons
 		mulu	#12,D6								; the size in bytes = 12n+2
 		add.w	#2,D6
@@ -119,42 +120,42 @@ dsbDone												; done looping, push a header for this object...
 		move.l	(A5),A0								; From QD globals
 		move.l	-122+6+4(A0),D0						; D0 = screenBits.bounds.botRight, so D0.W = screen width
 
-		add.w	#kPadX,D3							; D3 = box width
+		add.w	#.kPadX,D3							; D3 = box width
 		sub.w	D3,D0
 		bgt.s	.nottoowide
 		clr.w	D0
 .nottoowide
 		asr.w	#1,D0
 		move.w	D0,2(A1)							; set DSAlertRect left
-		move.w	D0,$9CE+2							; & stash in ToolScratch for MyPtInRect
+		move.w	D0,$9CE+2							; & stash in ToolScratch for .MyPtInRect
 		add.w	D3,D0
 		move.w	D0,6(A1)							; set DSAlertRect right
 
 		swap	D0									; D0 = screen height
 		swap	D2									; D2 = box height ("top" of next button)
-		add.w	#kPadY-kBtnGap,D2					; adjust box height
+		add.w	#.kPadY-.kBtnGap,D2					; adjust box height
 		sub.w	D2,D0
 		bgt.s	.nottoohigh
 		clr.w	D0
 .nottoohigh
 		asr.w	#1,D0
 		move.w	D0,(A1)								; set DSAlertRect top
-		move.w	D0,$9CE								; & stash in ToolScratch for MyPtInRect
+		move.w	D0,$9CE								; & stash in ToolScratch for .MyPtInRect
 		add.w	D2,D0
 		move.w	D0,4(A1)							; set DSAlertRect bottom
 
 
 ; Fourth pass: create a string offset for each button
 		moveq.l	#0,D6								; D6 = button counter
-		lea		TrailingList,A0						; A0 = current pstring ptr
-dssLoop
+		lea		.TrailingList,A0					; A0 = current pstring ptr
+.dssLoop
 		tst.b	(A0)
-		beq.s	dssDone
+		beq.s	.dssDone
 
 		move.w	(SP)+,D7							; pop NumEntries from DS table
 
 													; push the struct fields...
-		bsr		PushPaddedString					; even-length string with 2-byte length
+		bsr		.PushPaddedString					; even-length string with 2-byte length
 		move.w	D6,-(SP)							; the unique ID (C000+n)
 		add.w	#$C000,(SP)
 
@@ -166,21 +167,21 @@ dssLoop
 		moveq.l	#1,D0								; the pstring ptr
 		add.b	(A0),D0
 		add.l	D0,A0
-		bra.s	dssLoop
-dssDone
+		bra.s	.dssLoop
+.dssDone
 
 
 ; Fifth pass: generate code for each button
 		moveq.l	#0,D6								; D6 = button counter
-		lea		TrailingList,A0						; A0 = current pstring ptr
-dspLoop
+		lea		.TrailingList,A0					; A0 = current pstring ptr
+.dspLoop
 		tst.b	(A0)
-		beq.s	dspDone
+		beq.s	.dspDone
 
 		move.w	(SP)+,D7							; pop NumEntries from DS table
 
-		pea		ReturnToCaller						; craft the code for this button...
-		move.w	#$4EF9,-(SP)						; jmp ReturnToCaller (absolute addr)
+		pea		.ReturnToCaller						; craft the code for this button...
+		move.w	#$4EF9,-(SP)						; jmp .ReturnToCaller (absolute addr)
 		move.l	A6,-(SP)
 		move.w	#$2C7C,-(SP)						; move.l #CorrectA6,A6 ; frame ptr
 		move.l	A0,-(SP)
@@ -201,9 +202,9 @@ dspLoop
 		moveq.l	#1,D0								; the pstring ptr
 		add.b	(A0),D0
 		add.l	D0,A0
-		bra.s	dspLoop
+		bra.s	.dspLoop
 
-dspDone												; Must clear the instruction cache on 030/040
+.dspDone											; Must clear the instruction cache on 030/040
 		move.l	A6,D0
 		sub.l	SP,D0
 		move.l	SP,A0
@@ -220,7 +221,7 @@ dspDone												; Must clear the instruction cache on 030/040
 
 
 ; The selected procedure will jump to here after setting A6,A0,D0
-ReturnToCaller
+.ReturnToCaller
 		move.w	#$A8AD,D0							; Unpatch _PtInRect
 		move.l	$9CE+4,A0							; We saved it in ToolScratch
 		dc.w	$A047								; _SetTrapAddress
@@ -235,7 +236,7 @@ ReturnToCaller
 		rts
 
 
-PushPaddedString ; trashes A1-A2,D0-D2, but must preserve A0
+.PushPaddedString ; trashes A1-A2,D0-D2, but must preserve A0
 		move.l	(SP)+,A2
 
 		move.l	A0,-(SP) ; backup
@@ -282,7 +283,7 @@ PushPaddedString ; trashes A1-A2,D0-D2, but must preserve A0
 		jmp		(A2)
 
 
-MyPtInRect
+.MyPtInRect
 		move.l	$9CE,D0
 		sub.w	D0,10(SP)
 		swap	D0
@@ -292,7 +293,7 @@ MyPtInRect
 		jmp		(A0)
 
 
-MyDSAlertTabStart
+.MyDSAlertTabStart
 		dc.w	1		; NumEntries
 
 ; Our only alert definition
@@ -303,7 +304,7 @@ MyDSAlertTabStart
 		dc.w	0		; icon definition ID
 		dc.w	0		; procedure definition ID
 		dc.w	$1993	; button definition ID
-MyDSAlertTabEnd
+.MyDSAlertTabEnd
 
-
-TrailingList
+.TrailingList
+_BoundaryLabelAtEndOfBootPicker_
