@@ -218,6 +218,15 @@ _BoundaryLabelAtStartOfBootPicker_
 .ReturnToCaller
 		movem.l	A0/D0,-(SP)							; save/restore our return values
 
+		move.l	(A5),A0								; Open a new whole-screen port
+		move.l	(A0),-(SP)
+		dc.w	$A86F								; _OpenPort
+
+		pea		$3F8								; DSAlertRect
+		move.l	(A5),A0								; 
+		pea		-24(A0)								; qd.gray
+		dc.w	$A8A5								; _FillRect
+
 		move.w	#$A8AD,D0							; Unpatch _PtInRect
 		move.l	$9CE+4,A0							; We saved it in ToolScratch
 		dc.w	$A047								; _SetTrapAddress
