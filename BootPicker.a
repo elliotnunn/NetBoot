@@ -222,9 +222,13 @@ _BoundaryLabelAtStartOfBootPicker_
 
 ; The selected procedure will jump to here after setting A6,A0,D0
 .ReturnToCaller
+		movem.l	A0/D0,-(SP)							; save/restore our return values
+
 		move.w	#$A8AD,D0							; Unpatch _PtInRect
 		move.l	$9CE+4,A0							; We saved it in ToolScratch
 		dc.w	$A047								; _SetTrapAddress
+
+		movem.l	(SP)+,A0/D0
 
 		unlk    A6									; See the saving code for details
 		move.l	(SP)+,$2BA
