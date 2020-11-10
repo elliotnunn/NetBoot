@@ -1,4 +1,6 @@
-; Inputs: append 1 or more Pascal strings, followed by zero byte
+; Input appended to this code:
+; [4 arbitrary bytes] [byte-prefixed pstring] [padding to even byte] ... [4 bytes] [zero byte]
+
 ; Outputs: D0 = index of selected string, Ao = pointer to selected string
 
 _BoundaryLabelAtStartOfBootPicker_
@@ -53,7 +55,7 @@ _BoundaryLabelAtStartOfBootPicker_
 
 ; First pass: calculate box width, putting shortest string width into D5
 		moveq.l	#.kMinWid,D5
-		lea		.TrailingList,A0					; A0 = current pstring ptr
+		bsr		.GetA0								; A0 = current pstring ptr
 .dswLoop
 		tst.b	(A0)
 		beq.s	.dswDone
@@ -70,9 +72,7 @@ _BoundaryLabelAtStartOfBootPicker_
 .notlargest
 		move.l	(SP)+,A0
 
-		moveq.l	#1,D0								; increment the pstring ptr
-		add.b	(A0),D0
-		add.l	D0,A0
+		bsr		.AdvanceA0
 		bra.s	.dswLoop
 .dswDone
 
@@ -84,7 +84,7 @@ _BoundaryLabelAtStartOfBootPicker_
 		move.l	#((.kPadY+.kBtnHt)<<16)|(.kPadX+4+4),D3; D3 = current button's botright
 		add.w	D5,D3								; ...including width of the text
 		moveq.l	#0,D6								; D6 = button counter
-		lea		.TrailingList,A0					; A0 = current pstring ptr
+		bsr		.GetA0								; A0 = current pstring ptr
 .dsbLoop
 		tst.b	(A0)
 		beq.s	.dsbDone
@@ -99,9 +99,7 @@ _BoundaryLabelAtStartOfBootPicker_
 		add.l	#(.kBtnHt+.kBtnGap)<<16,D2			; the button's top edge
 		add.l	#(.kBtnHt+.kBtnGap)<<16,D3			; the button's bottom edge
 		addq.w	#1,D6								; the button counter
-		moveq.l	#1,D0								; the pstring ptr
-		add.b	(A0),D0
-		add.l	D0,A0
+		bsr		.AdvanceA0
 		bra.s	.dsbLoop
 
 .dsbDone											; done looping, push a header for this object...
@@ -147,7 +145,7 @@ _BoundaryLabelAtStartOfBootPicker_
 
 ; Fourth pass: create a string offset for each button
 		moveq.l	#0,D6								; D6 = button counter
-		lea		.TrailingList,A0					; A0 = current pstring ptr
+		bsr		.GetA0								; A0 = current pstring ptr
 .dssLoop
 		tst.b	(A0)
 		beq.s	.dssDone
@@ -164,16 +162,14 @@ _BoundaryLabelAtStartOfBootPicker_
 
 													; increment...
 		addq.w	#1,D6								; the button counter
-		moveq.l	#1,D0								; the pstring ptr
-		add.b	(A0),D0
-		add.l	D0,A0
+		bsr		.AdvanceA0
 		bra.s	.dssLoop
 .dssDone
 
 
 ; Fifth pass: generate code for each button
 		moveq.l	#0,D6								; D6 = button counter
-		lea		.TrailingList,A0					; A0 = current pstring ptr
+		bsr		.GetA0								; A0 = current pstring ptr
 .dspLoop
 		tst.b	(A0)
 		beq.s	.dspDone
@@ -199,9 +195,7 @@ _BoundaryLabelAtStartOfBootPicker_
 
 													; increment...
 		addq.w	#1,D6								; the button counter
-		moveq.l	#1,D0								; the pstring ptr
-		add.b	(A0),D0
-		add.l	D0,A0
+		bsr		.AdvanceA0
 		bra.s	.dspLoop
 
 .dspDone											; Must clear the instruction cache on 030/040
@@ -295,6 +289,21 @@ _BoundaryLabelAtStartOfBootPicker_
 
 		move.l	$9CE+4,A0
 		jmp		(A0)
+
+
+.GetA0
+		lea		.TrailingList+4,A0
+		rts
+
+
+.AdvanceA0
+		moveq.l	#1,D0
+		add.b	(A0),D0
+		add.l	D0,A0
+		and.l	#1,D0 ; align to 2-byte boundary
+		add.l	D0,A0
+		lea		4(A0),A0 ; skip the 4-byte header
+		rts
 
 
 .MyDSAlertTabStart
