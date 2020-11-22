@@ -1,0 +1,14 @@
+; A snippet that you can INCLUDE directly, to invoke MicroBug at early boot,
+; when otherwise you would get a Sad Mac. Trick is to init the Event Queue.
+; Expect 8 bytes of unfamiliar stuff on the stack and some clobbered regs.
+
+; If you use this as a function, don't forget to RTS!
+
+            move.w  #20,d0      ; number of events
+            dc.w    $A06D       ; _InitEvents
+
+            move.l  $2BA,-(SP)  ; save DSAlertTab
+            move.l  #-1,$2BA    ; because it needs to be nonzero
+            move.w  #13,d0      ; as if we called _Debugger while it was unimp
+            dc.w    $A9C9       ; _SysError
+            move.l  (SP)+,$2BA  ; restore DSAlertTab
