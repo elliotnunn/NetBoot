@@ -100,8 +100,15 @@ while 1:
             print('    ATBOOT image request', data.hex())
         elif boot_type == 4:
             print('    ATBOOT image reply', data.hex())
+        elif boot_type == 128:
+            a, b, c, d = struct.unpack_from('>HLL32p', data)
+            d = d.decode('mac_roman')
+            print(f'    ATBOOT Elliot block seq={hex(a)} blkIdx={hex(b)} byteLen={hex(c)} img={repr(d)}')
+        elif boot_type == 129:
+            a, b = struct.unpack_from('>HL', data)
+            print(f'    ATBOOT Elliot reply seq={hex(a)} relByteIdx={hex(b)}')
         else:
-            print('    ' + data.hex())
+            print('    ATBOOT', boot_type, boot_vers, data.hex())
 
     else:
         print('Totally unknown DDP type', ddp_proto_type)        
