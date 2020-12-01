@@ -463,7 +463,7 @@ status_fmtLstCode ; tell them about our size
 
             move.l  (SP)+,A2
 
-            move.w  #0,$10(A0)          ; ioResult = statusErr
+            move.w  #0,$10(A0)          ; ioResult = noErr
             bra     DrvrFinish
 
 status_drvStsCode ; tell them about some of our flags
