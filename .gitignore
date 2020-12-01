@@ -1,8 +1,16 @@
 *.app
-edit.rom
 .DS_Store
 BootstrapFloppy/System.rdump
 BootstrapFloppy.dsk
 BootServer.INIT*
 *.bin
+*.tmp
+*.pyc
 payload
+
+# IDA stuff
+*.i64
+*.id0
+*.id1
+*.nam
+*.til
