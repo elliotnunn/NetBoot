@@ -353,22 +353,26 @@ def snefru(inbytes):
     return struct.pack('>4L', *_Hash512(temp_output, p0, p1, p2))
 
 
+def append_snefru(x):
+    if len(x) % 512 == 0:
+        maybe_already = snefru(x[:-64])
+        if x[-16:] == maybe_already: return x
+
+    while len(x) % 512 != 512 - 64: x += b'\0'
+    the_hash = snefru(x)
+    while len(x) % 512 != 512 - 16: x += b'\0'
+    x += the_hash
+
+    return x
+
+
 if __name__ == '__main__':
     import sys
     for p in sys.argv[1:]:
         try:
             x = open(p, 'rb').read()
-
-            if len(x) % 512 == 0:
-                maybe_already = snefru(x[:-64])
-                if x[-16:] == maybe_already: continue
-
-            while len(x) % 512 != 512 - 64: x += b'\0'
-            the_hash = snefru(x)
-            while len(x) % 512 != 512 - 16: x += b'\0'
-            x += the_hash
-
-            open(p, 'wb').write(x)
+            y = append_snefru(x)
+            if x != y: open(p, 'wb').write(x)
 
         except Exception as e:
             print(e)
