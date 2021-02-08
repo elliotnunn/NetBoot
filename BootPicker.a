@@ -20,6 +20,9 @@ _BoundaryLabelAtStartOfBootPicker_
 		move.l	$9CE,-(SP)			; Save ToolScratch
 		move.l	$9CE+4,-(SP)
 		move.l	$2BA,-(SP)			; Save DSAlertTab
+		move.l	$A8C,-(SP)			; Save RestProc
+		move.l	$120,-(SP)			; Save MacJmp
+		move.b	$BFF,-(SP)			; Save MacJmpFlag (32-bit only)
 		link.w  A6,#0				; We use a lot of stack
 
 
@@ -234,11 +237,15 @@ _BoundaryLabelAtStartOfBootPicker_
 		movem.l	(SP)+,A0/D0
 
 		unlk    A6									; See the saving code for details
+		move.b	(SP)+,$BFF
+		move.l	(SP)+,$120
+		move.l	(SP)+,$A8C
 		move.l	(SP)+,$2BA
 		move.l	(SP)+,$9CE+4
 		move.l	(SP)+,$9CE
 		move.l	(SP)+,$3F8+4
 		move.l	(SP)+,$3F8
+		move.l	#-1,$14A
 		movem.l	(SP)+,A1-A5/D1-D7
 		rts
 
