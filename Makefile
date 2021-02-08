@@ -78,7 +78,7 @@ ChainLoader.bin: ChainLoader.a BootPicker.a
 	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
 
 testchain: ChainLoader.bin FORCE
-	zsh -c 'trap "kill %1" SIGINT SIGTERM EXIT; ./ChainBoot.py **/*.dsk /Users/elliotnunn/Downloads/SSW-71-Universal/Hd-100.iso & make testclient'
+	zsh -c 'trap "kill %1" SIGINT SIGTERM EXIT; ./ChainBoot.py **/*.dsk & make testclient'
 
 
 
