@@ -1,0 +1,59 @@
+_BoundaryLabelAtStartOfDebugStr_
+
+            move.w  #$A89F,D0 ; _Unimplemented
+            dc.w    $A746 ; _GetToolTrapAddress
+            move.l  A0,A1
+            move.w  #$ABFF,D0 ; _DebugStr
+            dc.w    $A746 ; _GetToolTrapAddress
+            cmp.l   A0,A1
+            bne.s   .return
+
+			move.l  #.DebugStrTrapEnd-.DebugStrTrap,D0
+			dc.w    $A51E ; _NewPtrSys
+
+			move.l  A0,A1
+			lea     .DebugStrTrap,A0
+			move.l  #.DebugStrTrapEnd-.DebugStrTrap,D0
+			dc.w    $A02E ; _BlockMove
+
+			move.l	A1,A0
+            move.w  #$ABFF,D0
+            dc.w    $A647 ; _SetToolTrapAddress
+
+.return     rts
+
+
+.DebugStrTrap
+
+			link.w  A6,#-64				; We use a lot of stack
+			movem.l A1-A5/D0-D7,-64(A6)
+
+; Do the usual "QuickDraw outside of application" setup
+			clr.l	-(SP)
+			move.l	SP,A5				; tiny A5 world with QD globals ptr
+			lea		-206(SP),SP			; push the QD globals
+			pea		202(SP)
+			dc.w	$A86E				; _InitGraf
+			dc.w	$A8FE				; _InitFonts (because we use _StringWidth)
+			lea		-108(SP),SP
+			pea		(SP)
+			dc.w	$A86F				; _OpenPort (don't save, we have our own globs)
+
+			move.l  .TopLeft,-(SP)
+			dc.w    $A893 ; _MoveTo
+			move.l  8(A6),-(SP)
+			dc.w    $A884 ; _DrawString
+			
+			lea		.TopLeft,A0
+			add.w   #10,(A0)
+			
+			movem.l -64(A6),A1-A5/D0-D7
+			unlk    A6
+			move.l  (SP)+,A0
+			addq    #4,SP
+			jmp     (A0)
+
+.TopLeft	dc.w    10, 2
+.DebugStrTrapEnd
+
+_BoundaryLabelAtEndOfDebugStr_

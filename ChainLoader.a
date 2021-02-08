@@ -17,6 +17,13 @@ Code
 getBootBlocks
 ; Now is the time to install our DRVR because we are guaranteed an opportunity to boot if we don't fuck up.
 
+            bsr     BareBonesDebugStrInstall
+
+            move.l	#$03212121,-(SP)
+            pea	    (SP)
+            dc.w	$ABFF
+            addq.l	#4,SP
+
             link    A6,#-$32
             movem.l A2-A4/D3-D7,-(SP)
 
@@ -147,8 +154,6 @@ getBootBlocks
             bsr     HealInjuredBootBlocks
 
     ; Sundry hacks to make the boot process kinda-work
-            bsr     DisableDiskCache
-            bsr     TrackMostRecentResource
             bsr     FakeLapMgr
             bsr     InstallMPPWrapper
 ;            bsr     fixDriveNumBug ; not sure if I even need to do this any more?
@@ -913,40 +918,106 @@ MPPStatus
             rts
 
 MPPClose
-            movem.l A0-A4/D0-D7,-(SP) ; ultra-cautious
+            movem.l A0-A1,-(SP)
 
-            ; Preload some resources before networking goes away
+; okay, this is the money shot. we need to find and track which resources get loaded...
+            link.w	A6,#0
+			move.l  #'ed  ',-(SP)
+			move.l  #'clos',-(SP)
+			move.l  #'MPP ',-(SP)
+			move.l	#10,-(SP)
+			pea		3(SP)
+			dc.w	$ABFF
+			unlk	A6
+			
+			movem.l	(SP)+,A0-A1
+			rts ; just ignore everything beneath
+
+
+
+
+    if 0
+            move.w  #$1A0,D0 ; _GetResource
+            dc.w    $A746 ; _GetToolTrapAddress
+            lea     OldGRTrap,A1
+            move.l  A0,(A1)
+            lea     NewGRTrap,A0
+            move.w  #$1A0,D0 ; _GetResource
+            dc.w    $A647 ; _SetToolTrapAddress
+    endif
 
             clr.l   -(SP)
             move.l  #'lmgr',-(SP)
             move.w  #0,-(SP)
+            clr.b   $A5E                    ; SetLoad = 0
             dc.w    $A9A0 ; _GetResource
-            addq.l  #4,SP            
+            st      $A5E                    ; SetLoad = 1
+            move.l  (SP)+,D0
+            beq     .err
+            move.l	D0,A0
+            move.l  (A0),D0                 ; A0 -> actual LAP Manager
+            beq     .err
+            move.l  D0,A0
 
+            move.l  8(A0),D0                ; D0 = version
+
+            ; Run routines that have a header matching this AT version
+            lea     ATPreloadTable,A0
+            lea     ATPreloadTableEnd,A1
+
+.loop       cmp.w   A0,A1
+            bhs.s   .exit
+            cmp.w   #'A~',(A0)+             ; magic cookie
+            bne.s   .loop
+            move.l  (A0)+,D1
+            cmp.l   D0,D1                   ; check lower version
+            blo.s   .loop
+            move.l  (A0)+,D1
+            cmp.l   D0,D1                   ; check upper version
+            bhi.s   .loop
+
+            movem.l A0/A1/D0,-(SP)
+            jsr     (A0)                    ; call the routine because it matches this AppleTalk version
+            movem.l (SP)+,A0/A1/D0
+            bra.s   .loop
+
+.exit       movem.l (SP)+,A0-A1
+			rts
+.err        dc.w    $A9FF
+
+
+OldGRTrap   dc.l    0
+NewGRTrap   move.l  OldGRTrap,-(SP)
+			rts
+
+
+GetResNoPurge ; D0.L=type, D1.W=ID
             clr.l   -(SP)
-            move.l  #'AINI',-(SP)
-            move.w  #30000,-(SP)
-            dc.w    $A9A0 ; _GetResource
-            addq.l  #4,SP            
+            move.l  D0,-(SP)        ; type
+            move.w  D1,-(SP)        ; id
+            dc.w    $A9A0           ; _GetResource
+            move.l  (SP)+,D0
+            beq.s   .notfound
+            move.l	D0,A0
+            dc.w    $A04A           ; _HNoPurge
+.notfound   rts
 
-            clr.l   -(SP)
-            move.l  #'STR ',-(SP)
-            move.w  #$BFE3,-(SP)
-            dc.w    $A9A0 ; _GetResource
-            addq.l  #4,SP            
 
-            clr.l   -(SP)
-            move.l  #'STR#',-(SP)
-            move.w  #$BF89,-(SP)
-            dc.w    $A9A0 ; _GetResource
-            addq.l  #4,SP            
+ATPreloadTable
+            dc.w    'A~'                    ; magic cookie
+            dc.b    57, $00, $00, $00    	; min AppleTalk
+            dc.b    57, $FF, $FF, $FF    	; max AppleTalk
 
-            movem.l (SP)+,A0-A4/D0-D7
-
-            move.l  MPPOrigClose,-(SP)
-            rts
-
-ResourcesToPreload
+            move.l  #'AINI',D0
+            move.w  #30000,D1
+            bsr     GetResNoPurge
+            move.l  #'STR ',D0
+            move.w  #-16413,D1
+            bsr     GetResNoPurge
+            move.l  #'STR#',D0
+            move.w  #-16503,D1
+            bsr     GetResNoPurge
+ATPreloadTableEnd
 
 MPPWrapperEnd
 
@@ -986,6 +1057,41 @@ InstallUnderBufPtr
             dbra    D0,.wipeloop
 
             rts
+
+
+MicroBugForAllSysErrors
+            ; hack to debug System 6... I need to find where it loops
+            move.w  #20,d0      ; number of events
+            dc.w    $A06D       ; _InitEvents
+
+            move.w  #$A9C9,D0 ; _SysError
+            dc.w    $A746 ; _GetToolTrapAddress
+            lea     .oldSysError,A1
+            move.l  A0,(A1)
+
+            lea     .newSysError,A0
+            move.w	#.newSysErrorEnd-.newSysError,D0
+            bsr     InstallInSysHeap
+
+            move.w  #$A9C9,D0 ; _SysError
+            dc.w    $A647 ; _SetToolTrapAddress
+            
+            rts
+
+.newSysError
+            cmp.w	#40,D0
+            bne.s	.orig
+            lea     .newSysError+2,A0
+            move.w	#$FF,(A0)
+            rts
+.orig       move.l	.oldSysError,-(SP)
+.nothing    rts
+.oldSysError
+            dc.l 0
+.newSysErrorEnd
+
+
+BareBonesDebugStrInstall include "BareBonesDebugStr.a"
 
 
 BootPicker  include "BootPicker.a"
