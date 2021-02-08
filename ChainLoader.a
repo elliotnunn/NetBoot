@@ -17,20 +17,13 @@ Code
 getBootBlocks
 ; Now is the time to install our DRVR because we are guaranteed an opportunity to boot if we don't fuck up.
 
-            bsr     BareBonesDebugStrInstall
-
-            move.l	#$03212121,-(SP)
-            pea	    (SP)
-            dc.w	$ABFF
-            addq.l	#4,SP
-
             link    A6,#-$32
             movem.l A2-A4/D3-D7,-(SP)
 
     ; Copy the DRVR -> A2
             move.l  #DrvrEnd-DrvrBase,D0
             lea     DrvrBase,A0
-            bsr     InstallUnderBufPtr
+            bsr     InstallInSysHeap
             move.l  A0,A2
 
     ; Patch the server address into the DRVR code
@@ -153,11 +146,6 @@ getBootBlocks
             move.l  A4,A1                   ; A1 = full-length BBs
             bsr     HealInjuredBootBlocks
 
-    ; Sundry hacks to make the boot process kinda-work
-            bsr     FakeLapMgr
-            bsr     InstallMPPWrapper
-;            bsr     fixDriveNumBug ; not sure if I even need to do this any more?
-
     ; Clean up our stack frame
             movem.l (SP)+,A2-A4/D3-D7
             unlk    A6
@@ -219,110 +207,6 @@ error
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-; The .netBOOT driver installs a ToExtFS hook that triggers on _MountVol
-; and calls our mountSysVol. The hook routine checks that the drive number
-; is 4. On machines with >2 existing drives, this check fails, and we
-; never get called (i.e. Mini vMac).
-
-; The solution is to head patch the .netBOOT ToExtFS hook. We use a
-; one-shot patch on _MountVol to gain control after the hook is installed
-; but before it is called, and install our new hook.
-
-bystanderTrap       equ     $A00F ; _MountVol
-gTheirDriveNum      dc.w    0
-gOrigBystanderTrap  dc.l    0
-gOrigExtFS          dc.l    0
-NetBootName         dc.b    8, ".netBOOT", 0
-
-fixDriveNumBug
-    ; Get the .netBOOT driver refnum (only to search for the right drive)
-            lea     -$32(A6),A0                 ; Use our caller's stack frame
-            bsr     clearblock
-            lea     NetBootName,A1
-            move.l  A1,$12(A0)                  ; IOFileName
-            dc.w    $A000                       ; _Open
-            bne     error
-            move.w  $18(A0),D0                  ; Result in IORefNum
-
-    ; Search for the drive with that number in dQRefNum
-            lea     2(A1),A0                    ; Treat qHead like qLink.
-nbFindLoop  move.l  (A0),A0                     ; follow qLink
-            cmp.w   8(A0),D0                    ; is the dQRefNum the .netBOOT driver?
-            beq.s   nbFound                     ; then we found the .netBOOT drive
-            cmp.l   6(A1),A0                    ; have we reached qTail?
-            beq     error                       ; then we didn't find the .netBOOT drive
-            bra.s   nbFindLoop
-nbFound     move.w  6(A0),D0                    ; Get dqDrive (drive number)
-
-    ; Save drivenum in a global for our patch to use
-            lea     gTheirDriveNum,A0
-            move.w  D0,(A0)
-
-    ; Only install the patch if we need to
-            cmp.w   #4,D0                       ; A drivenum of 4 will work anyway
-            bne.s   installOneshotPatch
-            rts
-
-
-; Install a self-disabling patch on _MountVol
-installOneshotPatch
-            move.w  #bystanderTrap,D0           ; Save original in a global
-            dc.w    $A346 ; _GetOSTrapAddress
-            lea     gOrigBystanderTrap,A1
-            move.l  A0,(A1)
-
-            move.w  #bystanderTrap,D0           ; Install
-            lea     oneshotPatch,A0
-            dc.w    $A247 ; _SetOSTrapAddress
-
-            rts
-
-
-; Our _MountVol patch 
-oneshotPatch
-            clr.l   -(SP)
-            movem.l D0/D1/A0/A1,-(SP)           ; Save "OS trap" registers
-
-            move.l  $3F2,A0                     ; Save the ToExtFS hook in a global to call later
-            lea     gOrigExtFS,A1
-            move.l  A0,(A1)
-            lea     toExtFSPatch,A0             ; Install the ToExtFS head patch
-            move.l  A0,$3F2
-
-            lea     gOrigBystanderTrap,A0       ; Remove this patch from _MountVol
-            move.l  (A0),A0
-            move.l  A0,16(SP)
-            move.w  #bystanderTrap,D0
-            dc.w    $A047 ; _SetTrapAddress
-
-            movem.l (SP)+,D0/D1/A0/A1
-            rts
-
-
-; Our head patch on the ToExtFS hook
-toExtFSPatch
-            movem.l A0-A4/D1-D2,-(SP)           ; Save the same registers at the real ToExtFS hook
-
-            cmp.b   #$F,$6+1(A0)                ; Check for a _MountVol call (IOTrap+1)
-            bne.s   hookReturn
-
-            lea     gTheirDriveNum,A1           ; Check for the CORRECT drive number,
-            move.w  (A1),D0                     ; instead of erroneously checking for 4.
-            cmp.w   $16(A0),D0                  ; IODrvNum
-            bne.s   hookReturn
-
-            lea     gOrigExtFS,A1               ; Rejoin the ToExtFS hook AFTER the buggy code
-            move.l  (A1),A1
-hookScan    add.l   #2,A1                       ; Scan for "lea DrvQHdr,A2" (or similar)
-            cmp.w   #$308,2(A1)
-            bne.s   hookScan
-            jmp     (A1)                        ; and enter at that point
-
-hookReturn  movem.l (SP)+,A0-A4/D1-D2
-            rts
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
 clearblock
             move.w  #$32/2-1,D0
 .loop       clr.w   (A0)+
@@ -360,15 +244,8 @@ DrvrNameString
 gDriveNum   dc.w    0
 gDQEAddr    dc.l    0
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-; code on this side is for start only, and stays in the netBOOT driver globals until released
-
-BufPtrCopy
-
-; code on this side gets copied beneath BufPtr (is that the best place??)
-
-
-; Shall we start with a driver?
 DrvrBase
             dc.w    $4F00           ; dReadEnable dWritEnable dCtlEnable dStatEnable dNeedLock
             dc.w    0               ; delay
@@ -733,297 +610,7 @@ HealInjuredBootBlocks ; patch the BBs to fix themselves if executed
 
 .gFullLoc   dc.l    0                       ; Stuff addr of full-length BB in here
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-DisableDiskCache
-            move.w  #$1A0,D0 ; _GetResource
-            dc.w    $A746 ; _GetToolTrapAddress
-            lea     .jmpOld+2,A1
-            move.l  A0,(A1)
-
-            lea     .GetResourcePatch,A0
-            move.l  #.GetResourcePatchEnd-.GetResourcePatch,D0
-            bsr     InstallInSysHeap
-
-            move.w  #$1A0,D0
-            dc.w    $A647 ; _SetToolTrapAddress
-
-            rts
-
-.GetResourcePatch
-            cmp.l   #'ptch',6(SP)
-            bne.s   .jmpOld
-            cmp.w   #41,4(SP)
-            bne.s   .jmpOld
-
-            bra.s   .memoryhole
-.jmpOld
-            jmp     $12345678
-.memoryhole move.l  (SP)+,A0
-            addq    #6,SP
-            clr.l   (SP)
-            jmp     (A0)
-.GetResourcePatchEnd
-
-
-
-TrackMostRecentResource
-            move.w  #$1A0,D0 ; _GetResource
-            dc.w    $A746 ; _GetToolTrapAddress
-            lea     GRjmp+2,A1
-            move.l  A0,(A1)
-
-            lea     GetResourcePatch,A0
-            move.l  #GetResourcePatchEnd-GetResourcePatch,D0
-            bsr     InstallInSysHeap ; takes and returns A0
-
-            move.w  #$1A0,D0
-            dc.w    $A647 ; _SetToolTrapAddress
-
-            rts
-
-GetResourcePatch
-            move.l  A0,D0
-            lea     GRrecord,A0
-            move.l  6(SP),(A0)+
-            move.w  4(SP),(A0)+
-            move.l  4(A6),(A0)+
-            move.l  D0,A0 ; maybe the register needed saving??
-GRjmp       jmp     $12345678
-
-            dc.l    'Elmo'
-GRrecord    dcb.b   20
-GetResourcePatchEnd
-
-
-
-FakeLapMgr
-            tst.l   $B18
-            bgt.s   .nofix
-
-            moveq.l #MyLapMgrEnd-MyLapMgr,D0
-            dc.w    $A440           ; _ResrvMemSys
-            moveq.l #MyLapMgrEnd-MyLapMgr,D0
-            dc.w    $A522           ; _NewHandleSys
-            dc.w    $A029           ; _HLock
-            move.l  (A0),A1
-            lea     MyLapMgr,A0
-            moveq.l #MyLapMgrEnd-MyLapMgr,D0
-            dc.w    $A02E           ; _BlockMove
-            move.l  A1,$B18         ; -> LAPMgrPtr
-
-.nofix      rts
-
-MyLapMgr
-            nop
-            nop
-            nop
-            nop
-            nop
-            nop
-            nop
-            nop
-            nop
-            nop
-            nop
-            rts
-.exit
-MyLapMgrEnd
-
-
-
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-InstallMPPWrapper
-            movem.l A2-A4,-(SP)
-
-            ; Copy the fake .MPP DRVR, with its address in A2
-            move.l  #MPPWrapperEnd-MPPWrapper,D0
-            lea     MPPWrapper,A0
-            bsr     InstallInSysHeap
-            move.l  A0,A2
-
-            ; Get DCE ptr in A0
-            move.l  $11C,A0                                 ; UTableBase
-            move.l  9*4(A0),A0
-            move.l  (A0),A0                                 ; got ptr to MPP DCE
-
-            ; I have commented out the "driver is in a handle" lines
-            ; Get driver code ptr in A1
-            move.l  (A0),A1                                 ; should be a ptr, never a handle
-;            btst.b  #6,4+1(A0)
-;            beq.s   .isptr
-;            move.l  (A1),A1
-.isptr
-
-            ; Copy some information over...
-            move.l  (A1),(A2) ; all the flags
-            move.l  4(A1),4(A2)
-
-            moveq.l #5-1,D0                                 ; do it five times
-            lea     8(A1),A3                                ; A3 = original relative word-size ptr
-            lea     MPPOrigOpen-MPPWrapper(A2),A4           ; A4 = new absolute long-size ptr
-.routineloop
-            clr.l   D1
-            move.w  (A3)+,D1
-            add.l   A1,D1
-            move.l  D1,(A4)+
-            dbra    D0,.routineloop
-
-            ; And "take over" the execution of the driver code
-            move.l  A2,(A0)                                 ; dCtlDriver = our new driver code
-;            bclr.b  #6,4+1(A0)                              ; bit of a race condition, but who cares
-
-            movem.l (SP)+,A2-A4
-
-            rts
-
-
-MPPWrapper
-            dc.w    0               ; flags, to be filled in
-            dc.w    0               ; delay
-            dc.w    0               ; evt mask
-            dc.w    0               ; menu
-            dc.w    MPPOpen-MPPWrapper
-            dc.w    MPPPrime-MPPWrapper
-            dc.w    MPPControl-MPPWrapper
-            dc.w    MPPStatus-MPPWrapper
-            dc.w    MPPClose-MPPWrapper
-            dc.b    4,".MPP "
-            dc.w    $3004 ; a version code
-
-MPPOrigOpen     dc.l    0
-MPPOrigPrime    dc.l    0
-MPPOrigControl  dc.l    0
-MPPOrigStatus   dc.l    0
-MPPOrigClose    dc.l    0
-
-MPPOpen
-            move.l  MPPOrigOpen,-(SP)
-            rts
-
-MPPPrime
-            move.l  MPPOrigPrime,-(SP)
-            rts
-
-MPPControl
-            move.l  MPPOrigControl,-(SP)
-            rts
-
-MPPStatus
-            move.l  MPPOrigStatus,-(SP)
-            rts
-
-MPPClose
-            movem.l A0-A1,-(SP)
-
-; okay, this is the money shot. we need to find and track which resources get loaded...
-            link.w	A6,#0
-			move.l  #'ed  ',-(SP)
-			move.l  #'clos',-(SP)
-			move.l  #'MPP ',-(SP)
-			move.l	#10,-(SP)
-			pea		3(SP)
-			dc.w	$ABFF
-			unlk	A6
-			
-			movem.l	(SP)+,A0-A1
-			rts ; just ignore everything beneath
-
-
-
-
-    if 0
-            move.w  #$1A0,D0 ; _GetResource
-            dc.w    $A746 ; _GetToolTrapAddress
-            lea     OldGRTrap,A1
-            move.l  A0,(A1)
-            lea     NewGRTrap,A0
-            move.w  #$1A0,D0 ; _GetResource
-            dc.w    $A647 ; _SetToolTrapAddress
-    endif
-
-            clr.l   -(SP)
-            move.l  #'lmgr',-(SP)
-            move.w  #0,-(SP)
-            clr.b   $A5E                    ; SetLoad = 0
-            dc.w    $A9A0 ; _GetResource
-            st      $A5E                    ; SetLoad = 1
-            move.l  (SP)+,D0
-            beq     .err
-            move.l	D0,A0
-            move.l  (A0),D0                 ; A0 -> actual LAP Manager
-            beq     .err
-            move.l  D0,A0
-
-            move.l  8(A0),D0                ; D0 = version
-
-            ; Run routines that have a header matching this AT version
-            lea     ATPreloadTable,A0
-            lea     ATPreloadTableEnd,A1
-
-.loop       cmp.w   A0,A1
-            bhs.s   .exit
-            cmp.w   #'A~',(A0)+             ; magic cookie
-            bne.s   .loop
-            move.l  (A0)+,D1
-            cmp.l   D0,D1                   ; check lower version
-            blo.s   .loop
-            move.l  (A0)+,D1
-            cmp.l   D0,D1                   ; check upper version
-            bhi.s   .loop
-
-            movem.l A0/A1/D0,-(SP)
-            jsr     (A0)                    ; call the routine because it matches this AppleTalk version
-            movem.l (SP)+,A0/A1/D0
-            bra.s   .loop
-
-.exit       movem.l (SP)+,A0-A1
-			rts
-.err        dc.w    $A9FF
-
-
-OldGRTrap   dc.l    0
-NewGRTrap   move.l  OldGRTrap,-(SP)
-			rts
-
-
-GetResNoPurge ; D0.L=type, D1.W=ID
-            clr.l   -(SP)
-            move.l  D0,-(SP)        ; type
-            move.w  D1,-(SP)        ; id
-            dc.w    $A9A0           ; _GetResource
-            move.l  (SP)+,D0
-            beq.s   .notfound
-            move.l	D0,A0
-            dc.w    $A04A           ; _HNoPurge
-.notfound   rts
-
-
-ATPreloadTable
-            dc.w    'A~'                    ; magic cookie
-            dc.b    57, $00, $00, $00    	; min AppleTalk
-            dc.b    57, $FF, $FF, $FF    	; max AppleTalk
-
-            move.l  #'AINI',D0
-            move.w  #30000,D1
-            bsr     GetResNoPurge
-            move.l  #'STR ',D0
-            move.w  #-16413,D1
-            bsr     GetResNoPurge
-            move.l  #'STR#',D0
-            move.w  #-16503,D1
-            bsr     GetResNoPurge
-ATPreloadTableEnd
-
-MPPWrapperEnd
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
 
 InstallInSysHeap
 ; takes A0/D0 as args, returns ptr in A0
@@ -1041,57 +628,6 @@ InstallInSysHeap
             dbra    D0,.wipeloop
 
             rts
-
-
-InstallUnderBufPtr
-; takes A0/D0 as args, returns ptr in A0
-            sub.l   D0,$10C ; BufPtr
-            move.l  $10C,A1
-            move.l  D0,-(SP)
-            dc.w    $A02E ; _BlockMove
-            move.l  (SP)+,D0
-            exg     A0,A1 ; now A1=old, A0=new
-
-            subq.l  #1,D0
-.wipeloop   move.b  $99,(A1)+
-            dbra    D0,.wipeloop
-
-            rts
-
-
-MicroBugForAllSysErrors
-            ; hack to debug System 6... I need to find where it loops
-            move.w  #20,d0      ; number of events
-            dc.w    $A06D       ; _InitEvents
-
-            move.w  #$A9C9,D0 ; _SysError
-            dc.w    $A746 ; _GetToolTrapAddress
-            lea     .oldSysError,A1
-            move.l  A0,(A1)
-
-            lea     .newSysError,A0
-            move.w	#.newSysErrorEnd-.newSysError,D0
-            bsr     InstallInSysHeap
-
-            move.w  #$A9C9,D0 ; _SysError
-            dc.w    $A647 ; _SetToolTrapAddress
-            
-            rts
-
-.newSysError
-            cmp.w	#40,D0
-            bne.s	.orig
-            lea     .newSysError+2,A0
-            move.w	#$FF,(A0)
-            rts
-.orig       move.l	.oldSysError,-(SP)
-.nothing    rts
-.oldSysError
-            dc.l 0
-.newSysErrorEnd
-
-
-BareBonesDebugStrInstall include "BareBonesDebugStr.a"
 
 
 BootPicker  include "BootPicker.a"
