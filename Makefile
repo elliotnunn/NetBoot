@@ -14,7 +14,7 @@ image: systools607.dsk.a Makefile
 
 	MakeHFS /tmp/system6.dsk -i /tmp/system6 -s 4M -n SexyDisk
 
-	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom /tmp/system6.dsk
+	Mini\ vMac\ Classic.app/Co*/Ma*/* /tmp/system6.dsk
 
 
 Bootstrap.bin: Bootstrap.a
@@ -27,7 +27,7 @@ BootstrapFloppy.dsk: BootstrapFloppy/System.rdump
 	MakeHFS -n 'NetBoot Enabler' -i BootstrapFloppy -s 1440k -d now $@
 
 testclient: BootstrapFloppy.dsk
-	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom $<
+	Mini\ vMac\ Classic.app/Co*/Ma*/* $<
 
 
 
@@ -55,7 +55,7 @@ testserver: BootServer.INIT
 	cp MacsBug\ 6.2.2/* /tmp/bootserv/System\ Folder
 	cp BootServer.INIT* /tmp/bootserv/System\ Folder
 	MakeHFS -i /tmp/bootserv -s 10m bootserv.tmp
-	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom bootserv.tmp
+	Mini\ vMac\ Classic.app/Co*/Ma*/* bootserv.tmp
 
 pyserver: payload FORCE
 	./NetBoot.py payload
@@ -66,7 +66,7 @@ pyserver: payload FORCE
 testpicker: BootPicker.bin FORCE
 	cp sys701-144.img bootpick.tmp
 	dd if=BootPicker.bin of=bootpick.tmp bs=138 seek=1 conv=notrunc
-	Mini\ vMac\ Classic.app/Co*/Ma*/* xo.rom bootpick.tmp
+	Mini\ vMac\ Classic.app/Co*/Ma*/* bootpick.tmp
 
 BootPicker.bin: BootPicker.a
 	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
