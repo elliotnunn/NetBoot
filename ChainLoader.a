@@ -262,7 +262,6 @@ DrvrBase
 g
 gNumBlks    dc.l    0               ; the source of all truth
 gMyDCE      dc.l    0
-gTheirPB    dc.l    0               ; pointer to the pending ParamBlk
 gQuery
 gQTypeVer   dc.w    0               ; part of gQuery
 gQSeqNum    dc.w    0               ; part of gQuery
@@ -293,18 +292,8 @@ DrvrOpen
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrPrime
-            cmp.b   #2,$7(A0)       ; ioTrap == aRdCmd
-            bne     .notRead
 
-            move.w  #1,$10(A0)              ; ioResult = pending. We will return without an answer.
-
-            move.l  A1,D0                   ; save and restore A1
-            lea     gTheirPB,A1             ; keep a copy of the pending PB in our code (a bit messy)
-            move.l  A0,(A1)
-            move.l  D0,A1
-
-    ; For short requests, DevMgr puts offset in DCE
-    ; We, oddly, stuff a BLOCK offset into ioPosOffset
+; Convert the ioPosOffset in the parameter block to a block offset (allows large vol support).
             btst.b  #0,$2C(A0)              ; test ioPosMode & kUseWidePositioning
             bne.s   .wide
 .notwide    move.l  $10(A1),D0
@@ -315,23 +304,19 @@ DrvrPrime
             ror.l   #5,D0
             move.l  D0,$2E(A0)              ; ioPosOffset = D0 = byte_offset/512
 
-            movem.l A0-A4,-(SP)             ; sleazy function that will trash stuff
+; Increment the protocol sequence counter.
+            lea     gQSeqNum,A2
+            addq.w	#1,(A2)
+
+; Kick the state machine.
+            movem.l A0-A1,-(SP)
             bsr.s   DrvrTransmitRequest     ; takes A0 as PB argument
-            movem.l (SP)+,A0-A4
+            movem.l (SP)+,A0-A1
 
-            bge.s   .noerr
-            dc.w    $A9FF                   ; Elliot, this is where we get those "unimp traps"
-            move.w  #-36,$10(A0)            ; ioResult = ioErr
-.noerr
-
+; Return with a "pending" ioResult.
+            move.w  #1,$10(A0)              ; ioResult = pending. We will return without an answer.
             rts
 
-.notRead
-            move.w  #$DDDD,D0
-            dc.w    $A9C9
-
-            move.w  #-20,$10(A0)
-            rts
 
 DrvrTransmitRequest ; On entry, A0=pb. Trashes A0-A4/D0 so be careful. Uses our globals extensively.
             lea     g,A2
@@ -344,7 +329,6 @@ DrvrTransmitRequest ; On entry, A0=pb. Trashes A0-A4/D0 so be careful. Uses our 
             move.b  gSaveAddr-g+15(A2),gAddr-g+15(A2)
 
             move.w  #$8001,gQTypeVer-g(A2)          ; Means a polite request, v1
-            addq.w  #1,gQSeqNum-g(A2)               ; Increment the sequence counter
 
             move.l  $28(A0),D0                      ; [ioActCount (in bytes)
             lsr.l   #4,D0
@@ -414,6 +398,10 @@ DrvrSockListener ; works closely with the Prime routine
 ; D2  Free for your use.
 ; D3  Free for your use.
 
+            move.l  gMyDCE,A5
+            btst.b  #7,5(A5)            ; Check drvrActive flag (is there an outstanding request?)
+            beq     .trashpacket
+
             cmp.b   #10,-1(A3)          ; DDP protocol type better be ATBOOT
             bne.s   .trashpacket
 
@@ -428,8 +416,9 @@ DrvrSockListener ; works closely with the Prime routine
             cmp.w   -6(A3),D2
             bne.s   .trashpacket
 
-            lea     gTheirPB,A5
-            move.l  (A5),A5
+            move.l  gMyDCE,A5           ; Get current param block
+            move.l  6+2(A5),A5          ; dCtlQHdr.qHead
+
             move.l  $28(A5),D2          ; keep this in D2 because we will use it in a sec
             move.l  -4(A3),D3
             lsl.l   #4,D3
@@ -444,8 +433,9 @@ DrvrSockListener ; works closely with the Prime routine
             jsr     2(A4)               ; ReadRest
                                         ; From this point on, use A1 instead of A5
 
-            lea     gTheirPB,A1
-            move.l  (A1),A1
+            move.l  gMyDCE,A1           ; Get current param block
+            move.l  6+2(A1),A1          ; dCtlQHdr.qHead
+
             move.l  D2,$28(A1)          ; update ioActCount
             cmp.l   $24(A1),D2          ; does it equal ioReqCount?
             bne.s   .rts
@@ -463,20 +453,14 @@ DrvrSockListener ; works closely with the Prime routine
             jsr     2(A4)               ; ReadRest nothing
 
             movem.l A0-A4,-(SP)
-            lea     gTheirPB,A0
-            move.l  (A0),A0
+            move.l  gMyDCE,A0           ; Get current param block
+            move.l  6+2(A0),A0          ; dCtlQHdr.qHead
             bsr     DrvrTransmitRequest
             movem.l (SP)+,A0-A4
 
             rts
 
-            move.w  #$1111,D0 ; won't happen with old-school LocalTalk
-            dc.w    $A9C9
-
 .trashpacket
-            move.w  #$BBBB,D0 ; take this out when I'm confident the case doesn't matter
-            dc.w    $A9C9
-
             moveq.l #0,D3
             jmp     2(A4)               ; ReadRest nothing
 
