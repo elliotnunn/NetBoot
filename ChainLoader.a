@@ -266,8 +266,8 @@ gTheirPB    dc.l    0               ; pointer to the pending ParamBlk
 gQuery
 gQTypeVer   dc.w    0               ; part of gQuery
 gQSeqNum    dc.w    0               ; part of gQuery
-gQOffset    dc.l    0               ; part of gQuery
-gQLen       dc.l    0               ; part of gQuery
+gQOffset    dc.l    0               ; part of gQuery: block offset
+gQLen       dc.l    0               ; part of gQuery: block count
 gQFilename  dcb.b   32              ; part of gQuery ; set by the init code
 gQueryEnd
 gWDS        dcb.b   2+4+2+4+2
@@ -352,8 +352,10 @@ DrvrTransmitRequest ; On entry, A0=pb. Trashes A0-A4/D0 so be careful. Uses our 
             add.l   $2E(A0),D0                      ; + ioPosOffset (in blocks)
             move.l  D0,gQOffset-g(A2)               ; -> "offset" field of request
 
-            move.l  $24(A0),D0                      ; ioReqCount (in bytes)
-            sub.l   $28(A0),D0                      ; - ioActCount (in bytes)
+            move.l  $24(A0),D0                      ; [ioReqCount (in bytes)
+            sub.l   $28(A0),D0                      ; - ioActCount (in bytes)]
+            lsr.l   #4,D0
+            lsr.l   #5,D0                           ; / 512
             move.l  D0,gQLen-g(A2)                  ; -> "length" field of request
 
             lea     gAddr,A3
@@ -429,7 +431,10 @@ DrvrSockListener ; works closely with the Prime routine
             lea     gTheirPB,A5
             move.l  (A5),A5
             move.l  $28(A5),D2          ; keep this in D2 because we will use it in a sec
-            cmp.l   -4(A3),D2           ; ioActCount = this offset?
+            move.l  -4(A3),D3
+            lsl.l   #4,D3
+            lsl.l   #5,D3
+            cmp.l   D3,D2               ; ioActCount = this offset?
             bne.s   .outoforder
 
             move.l  $20(A5),A3          ; ioBuffer

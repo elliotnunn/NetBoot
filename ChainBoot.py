@@ -279,15 +279,15 @@ while 1:
                     # break # wait for another request, you mofo!
 
         elif boot_type == 128:
-            boot_seq, boot_blkoffset, boot_bytelen, boot_imgname = struct.unpack_from('>HLL32p', data)
+            boot_seq, boot_blkoffset, boot_blkcnt, boot_imgname = struct.unpack_from('>HLL32p', data)
             boot_imgname = boot_imgname.decode('mac_roman')
-            for ofs in range(0, boot_bytelen, 512):
-                thisblk = image2dict[boot_imgname][boot_blkoffset*512+ofs:boot_blkoffset*512+ofs+512]
+            for blk in range(boot_blkoffset, boot_blkoffset + boot_blkcnt):
+                thisblk = image2dict[boot_imgname][blk*512:blk*512+512]
                 sock.sendto(mk_ddp(
                     dest_node=llap_src_node, dest_socket=ddp_src_socket,
                     src_node=99, src_socket=99,
                     proto_type=10,
-                    data=struct.pack('>BBHL', 129, 1, boot_seq, ofs) + thisblk
+                    data=struct.pack('>BBHL', 129, 1, boot_seq, blk-boot_blkoffset) + thisblk
                 ),
                 (MCAST_ADDR, MCAST_PORT))
 
