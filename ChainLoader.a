@@ -323,8 +323,9 @@ DrvrPrime
 
 
 DrvrSendRead
-; Called from Prime routine: PB/DCE in A0/A1 must be preserved
-            lea     gExpectHdr+2,A2
+; Called from Prime routine: PB/DCE in A0/A1 must be preserved (but we only require A0)
+            lea     gExpectHdr,A2
+            clr.w   (A2)+
             addq.w  #1,(A2)             ; packet filter sequence word
             lea     gProgress,A2
             clr.l   (A2)
@@ -472,45 +473,56 @@ DrvrSockListener
 
             moveq.l #4,D3
             jsr     (A4)                ; Read the nice short packet header
-            move.l  -4(A3),D0
+            bne     DrvrTrashPacket
+            move.l  -4(A3),D2
 
-            move.l  gExpectHdr,D2       ; Check the packet header
-            eor.l   D0,D2
-            swap    D2
-            clr.b   D2
+            move.l  gExpectHdr,D3       ; Check the packet header
+            eor.l   D2,D3
+            swap    D3
+            clr.b   D3
             bne.s   DrvrTrashPacket
 
-            btst    #25,D0
+            btst    #25,D2
             bne.s   DrvrDidReceiveWrite
 
 
 DrvrDidReceiveRead
-            swap    D0                  ; Confirm that this packet is not a dupe
-            and.w   #32-1,D0
+            swap    D2
+            and.w   #32-1,D2            ; D2.W = block offset
 
-            lea     gProgress,A5
-            move.l  (A5),D2
-            bset.l  D0,D2
-            bne.s   DrvrTrashPacket
-            move.l  D2,(A5)
+            move.l  D2,D3
+            asl.w   #8,D3
+            add.w   D3,D3               ; D3.W = byte offset
 
-            move.l  gMyDCE,A5
-            move.l  6+2(A5),A5          ; dCtlQHdr.qHead
-
-            move.l  $28(A5),D2          ; increment ioActCount, check ioReqCount
-            add.l   #512,D2
-            move.l  D2,$28(A5)
-            sub.l   $24(A5),D2          ; D2 gets saved across the coming ReadRest call
-
-            move.l  $20(A5),A3          ; ioBuffer
-            asl.w   #5,D0
-            asl.w   #4,D0
-            add.w   D0,A3               ; A3 = ioBuffer + thisPackOffset
+            move.l  gMyDCE,A3
+            move.l  6+2(A3),A3          ; dCtlQHdr.qHead
+            move.l  $20(A3),A3          ; .ioBuffer
+            add.w   D3,A3               ; A3 = ioBuffer + thisPackOffset
             move.l  #512,D3             ; D3 = size
-            jsr     2(A4)               ; ReadRest!
+            jsr     2(A4)               ; ReadRest (A3=dest, D3=length)
+            bne     DrvrTrashPacket
 
-            tst.l   D2
+            lea     gProgress,A1        ; Skip the next step if this packet is a repeat
+            move.l  (A1),D1
+            bset.l  D2,D1               ; (we saved blkidx in D2 before ReadRest)
+            bne.s   DrvrTrashPacket
+            move.l  D1,(A1)
+
+            move.l  gMyDCE,A0
+            move.l  6+2(A0),A0          ; dCtlQHdr.qHead
+
+            move.l  $28(A0),D0
+            add.l   #512,D0
+            move.l  D0,$28(A0)
+            cmp.l   $24(A0),D0
             beq.s   .ioDone
+            addq.l  #1,D1
+            beq     DrvrSendRead
+            rts
+
+.nextChunk
+            move.w  #$1111,D0
+            dc.w    $A9C9
             rts
 
 .ioDone     lea     gExpectHdr,A1

@@ -280,6 +280,7 @@ while 1:
 
         elif boot_type == 128:
             boot_seq, boot_blkoffset, boot_blkcnt = struct.unpack_from('>HLL', data); boot_imgname = b'A608.dsk'
+            boot_blkcnt = min(boot_blkcnt, 32)
             boot_imgname = boot_imgname.decode('mac_roman')
             for blk in range(boot_blkoffset, boot_blkoffset + boot_blkcnt):
                 thisblk = image2dict[boot_imgname][blk*512:blk*512+512]
