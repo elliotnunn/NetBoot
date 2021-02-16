@@ -474,14 +474,12 @@ DrvrSockListener
             jsr     (A4)                ; Read the nice short packet header
             move.l  -4(A3),D0
 
-    if 0
             lea     gExpectHdr,A5       ; Check the packet header
-            move.l  (A5),D1
-            eor.l   D0,D1
-            swap    D1
-            clr.b   D1
+            move.l  (A5),D2
+            eor.l   D0,D2
+            swap    D2
+            clr.b   D2
             bne.s   DrvrTrashPacket
-    endif
 
             btst    #25,D0
             bne.s   DrvrDidReceiveWrite
