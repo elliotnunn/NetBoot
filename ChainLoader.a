@@ -1,6 +1,8 @@
 myUnitNum       equ     52
 myDRefNum       equ     ~myUnitNum
 
+serverBufSize   equ     32
+
 
 Code
             cmp.l   #1,4(SP)
@@ -41,14 +43,14 @@ getBootBlocks
             move.w  D0,7(A0)    ; network
 
     ; Patch the disk image name and size into the DRVR code
-            bsr     BootPicker                              ; A0 = pstring ptr
-            lea     gNumBlks-DrvrBase(A2),A1
-            move.l  -4(A0),(A1)                             ; the size is underneath the pstring ptr
-            move.l  -4(A0),D6                               ; D6 = block count, needed for DQE
-            lea     gQFilename-DrvrBase(A2),A1              ; A1 = dest
-            moveq.l #1,D0
-            add.b   (A0),D0
-            dc.w    $A22E                                   ; _BlockMoveData
+;            bsr     BootPicker                              ; A0 = pstring ptr
+;            lea     gNumBlks-DrvrBase(A2),A1
+;            move.l  -4(A0),(A1)                             ; the size is underneath the pstring ptr
+;            move.l  -4(A0),D6                               ; D6 = block count, needed for DQE
+;            lea     gQFilename-DrvrBase(A2),A1              ; A1 = dest
+;            moveq.l #1,D0
+;            add.b   (A0),D0
+;            dc.w    $A22E                                   ; _BlockMoveData
 
     ; Install the driver in the unit table
             move.l  #myDRefNum,D0
@@ -262,14 +264,10 @@ DrvrBase
 g
 gNumBlks    dc.l    0               ; the source of all truth
 gMyDCE      dc.l    0
-gQuery
-gQTypeVer   dc.w    0               ; part of gQuery
-gQSeqNum    dc.w    0               ; part of gQuery
-gQOffset    dc.l    0               ; part of gQuery: block offset
-gQLen       dc.l    0               ; part of gQuery: block count
-gQFilename  dcb.b   32              ; part of gQuery ; set by the init code
-gQueryEnd
-gWDS        dcb.b   2+4+2+4+2
+gExpectHdr  dc.l    0
+gProgress   dc.l    0
+gQuery      dcb.b   20              ; really need to consider the length of this!
+gWDS        dcb.b   2+4+2+4+2+4+2   ; room for an address and two data chunks
 gMyPB       dcb.b   $32+2 ; allow us to clear it with move.l's
             odd
 gSaveAddr   dcb.b   16
@@ -304,55 +302,72 @@ DrvrPrime
             ror.l   #5,D0
             move.l  D0,$2E(A0)              ; ioPosOffset = D0 = byte_offset/512
 
-; Increment the protocol sequence counter.
-            lea     gQSeqNum,A2
-            addq.w	#1,(A2)
-
-; Kick the state machine.
-            movem.l A0-A1,-(SP)
-            bsr.s   DrvrTransmitRequest     ; takes A0 as PB argument
-            movem.l (SP)+,A0-A1
-
 ; Return with a "pending" ioResult.
             move.w  #1,$10(A0)              ; ioResult = pending. We will return without an answer.
-            rts
+
+; Wang the state machine!
+            cmp.b   #2,7(A0)                ; ioTrap == _Read?
+            bne     DrvrSendWrite           ; transition from "Idle" to "Await Comp Send Write Packet"
+            bra     DrvrSendRead            ; transition from "Idle" to "Await Comp Send Read Packet"
 
 
-DrvrTransmitRequest ; On entry, A0=pb. Trashes A0-A4/D0 so be careful. Uses our globals extensively.
-            lea     g,A2
 
-            move.b  gSaveAddr-g(A2),gAddr-g(A2) ; reasonable way to copy the address struct, I guess
-            move.l  gSaveAddr-g+1(A2),gAddr-g+1(A2)
-            move.l  gSaveAddr-g+5(A2),gAddr-g+5(A2)
-            move.l  gSaveAddr-g+9(A2),gAddr-g+9(A2)
-            move.w  gSaveAddr-g+13(A2),gAddr-g+13(A2)
-            move.b  gSaveAddr-g+15(A2),gAddr-g+15(A2)
 
-            move.w  #$8001,gQTypeVer-g(A2)          ; Means a polite request, v1
+
+; Some wrappers for the routines below...
+
+
+
+
+
+
+
+DrvrSendRead
+; Called from Prime routine: PB/DCE in A0/A1 must be preserved
+            lea     gExpectHdr+2,A2
+            addq.w  #1,(A2)             ; packet filter sequence word
+            lea     gProgress,A2
+            clr.l   (A2)
+
+            lea     gSaveAddr,A2
+            lea     gAddr,A3
+            move.b  (A2)+,(A3)+ ; copy the address struct, dang it!
+            move.l  (A2)+,(A3)+
+            move.l  (A2)+,(A3)+
+            move.l  (A2)+,(A3)+
+            move.w  (A2)+,(A3)+
+            move.b  (A2)+,(A3)+
+
+            lea     gQuery,A2
+            move.w  #$8000,(A2)+                    ; Means a polite request
+            move.w  gExpectHdr+2,(A2)+
 
             move.l  $28(A0),D0                      ; [ioActCount (in bytes)
             lsr.l   #4,D0
             lsr.l   #5,D0                           ; / 512]
             add.l   $2E(A0),D0                      ; + ioPosOffset (in blocks)
-            move.l  D0,gQOffset-g(A2)               ; -> "offset" field of request
+            move.l  D0,(A2)+                        ; -> "offset" field of request
 
             move.l  $24(A0),D0                      ; [ioReqCount (in bytes)
             sub.l   $28(A0),D0                      ; - ioActCount (in bytes)]
             lsr.l   #4,D0
             lsr.l   #5,D0                           ; / 512
-            move.l  D0,gQLen-g(A2)                  ; -> "length" field of request
+            move.l  D0,(A2)+                        ; -> "length" field of request
 
-            lea     gAddr,A3
-            clr.w   gWDS-g(A2)                      ; WDS+0 reserved field
-            move.l  A3,gWDS-g+2(A2)                 ; WDS+2 pointer to address struct
-            lea     gQuery,A3
-            move.w  #gQueryEnd-gQuery,gWDS-g+6(A2)  ; WDS+6 length of second entry
-            move.l  A3,gWDS-g+8(A2)                 ; WDS+8 pointer to second entry
-            clr.w   gWDS-g+12(A2)                   ; WDS+10 zero to end the list
+            lea     gWDS,A2
+            clr.w   (A2)+                           ; WDS+0: reserved field
+            pea     gAddr
+            move.l  (SP)+,(A2)+                     ; WDS+2: pointer to address struct
+            move.w  #12,(A2)+                       ; WDS: push pointer/length
+            pea     gQuery
+            move.l  (SP)+,(A2)+
+            clr.w   (A2)+                           ; WDS: end with zero
 
+            move.l  A0,-(SP)
             lea     gMyPB,A0
-.retry
             bsr     DrvrClearBlock
+            pea     DrvrDidSendRead
+            move.l  (SP)+,$C(A0)            ; ioCompletion
             move.w  #-10,$18(A0)            ; ioRefNum = .MPP
             move.w  #246,$1A(A0)            ; csCode = writeDDP
             move.b  #10,$1C(A0)             ; socket = 10 (hardcoded)
@@ -360,24 +375,39 @@ DrvrTransmitRequest ; On entry, A0=pb. Trashes A0-A4/D0 so be careful. Uses our 
             pea     gWDS
             move.l  (SP)+,$1E(A0)           ; wdsPointer to our WriteDataStructure
             dc.w    $A404                   ; _Control ,async
-
-            cmp.w   #-91,$10(A0)            ; This happens when the RAM MPP replaces the ROM one
-            bne.s   .noNeedToRetry          ; so we need to reopen socket #10, then retry...
-
-            bsr     DrvrClearBlock
-            move.w  #-10,$18(A0)            ; ioRefNum = .MPP
-            move.w  #248,$1A(A0)            ; csCode = openSkt
-            move.b  #10,$1C(A0)             ; socket = 10 (hardcoded)
-            pea     DrvrSockListener
-            move.l  (SP)+,$1E(A0)           ; listener
-            dc.w    $A004                   ; _Control (synchronous, better hope it doesn't deadlock!)
-
-            bra.s   .retry
-
-.noNeedToRetry
-            move.w  $10(A0),D0              ; for our caller to figure out what went wrong
+            move.l  (SP)+,A0
 
             rts
+
+
+DrvrDidSendRead
+; Called as completion routine: PB/result in A0/D0, must preserve all registers other than A0/A1/D0-D2
+
+            lea     gExpectHdr,A2
+            move.w  #$8100,(A2)                     ; Enable packet reception
+
+            rts ; TODO: set up a timeout/retry task
+
+
+DrvrSendFirstWrite
+            ; yech...
+            ; fall through...
+
+DrvrSendWrite
+            nop
+
+
+DrvrDidSendWrite
+            nop
+
+
+
+
+
+
+
+
+
 
 DrvrClearBlock
             move.w  #$32/2-1,D0
@@ -386,86 +416,122 @@ DrvrClearBlock
             lea     -$32(A0),A0
             rts
 
-DrvrSockListener ; works closely with the Prime routine
-; A0  Reserved for internal use by the .MPP driver. You must preserve this register until after the ReadRest routine has completed execution.
-; A1  Reserved for internal use by the .MPP driver. You must preserve this register until after the ReadRest routine has completed execution.
-; A2  Pointer to the .MPP driver's local variables. Elliot says: the frame and packet header ("RHA") are at offset 1 from A2 (keeps the 2-byte fields aligned)
-; A3  Pointer to the first byte in the RHA past the DDP header bytes (the first byte after the DDP protocol type field).
-; A4  Pointer to the ReadPacket routine. The ReadRest routine starts 2 bytes after the start of the ReadPacket routine.
-; A5  Free for your use before and until your socket listener calls the ReadRest routine.
-; D0  Lower byte is the destination socket number of the packet.
-; D1  Word indicating the number of bytes in the DDP packet left to be read (that is, the number of bytes following the DDP header).
-; D2  Free for your use.
-; D3  Free for your use.
+DrvrSockListener
+; Registers on call to DDP socket listener:
+;     A0  Reserved for internal use by the .MPP driver. You must preserve this register
+;         until after the ReadRest routine has completed execution.
+;     A1  Reserved for internal use by the .MPP driver. You must preserve this register
+;         until after the ReadRest routine has completed execution.
+;     A2  Pointer to the .MPP driver's local variables. Elliot says: the frame and packet
+;         header ("RHA") are at offset 1 from A2 (keeps the 2-byte fields aligned)
+;     A3  Pointer to the first byte in the RHA past the DDP header bytes (the first byte
+;         after the DDP protocol type field).
+;     A4  Pointer to the ReadPacket routine. The ReadRest routine starts 2 bytes after the
+;         start of the ReadPacket routine.
+;     A5  Free for your use before and until your socket listener calls the ReadRest routine.
+;     D0  Lower byte is the destination socket number of the packet.
+;     D1  Word indicating the number of bytes in the DDP packet left to be read (that is,
+;         the number of bytes following the DDP header).
+;     D2  Free for your use.
+;     D3  Free for your use.
+
+; Registers on entry to the ReadPacket routine
+;     A3  Pointer to a buffer to hold the data you want to read
+;     D3  Number of bytes to read; must be nonzero
+
+; Registers on exit from the ReadPacket routine
+;     A0  Unchanged
+;     A1  Unchanged
+;     A2  Unchanged
+;     A3  Address of the first byte after the last byte read into buffer
+;     A4  Unchanged
+;     D0  Changed
+;     D1  Number of bytes left to be read
+;     D2  Unchanged
+;     D3  Equals 0 if requested number of bytes were read, nonzero if error
+
+; Registers on entry to the ReadRest routine
+;     A3  Pointer to a buffer to hold the data you want to read
+;     D3  Size of the buffer (word length); may be 0
+
+; Registers on exit from the ReadRest routine
+;     A0  Unchanged
+;     A1  Unchanged
+;     A2  Unchanged
+;     A3  Pointer to first byte after the last byte read into buffer
+;     D0  Changed
+;     D1  Changed
+;     D2  Unchanged
+;     D3  Equals 0 if requested number of bytes exactly equaled the size of the buffer;
+;         less than 0 if more data was left than would fit in buffer (extra data equals
+;         -D3 bytes); greater than 0 if less data was left than the size of the buffer
+;         (extra buffer space equals D3 bytes)
+
+;            cmp.b   #10,-1(A3)          ; DDP protocol type better be ATBOOT
+;            bne.s   DrvrTrashPacket
+
+            moveq.l #4,D3
+            jsr     (A4)                ; Read the nice short packet header
+            move.l  -4(A3),D0
+
+    if 0
+            lea     gExpectHdr,A5       ; Check the packet header
+            move.l  (A5),D1
+            eor.l   D0,D1
+            swap    D1
+            clr.b   D1
+            bne.s   DrvrTrashPacket
+    endif
+
+            btst    #25,D0
+            bne.s   DrvrDidReceiveWrite
+
+
+DrvrDidReceiveRead
+            swap    D0                  ; Confirm that this packet is not a dupe
+            and.w   #32-1,D0
+
+            lea     gProgress,A5
+            move.l  (A5),D2
+            bset.l  D0,D2
+            bne.s   DrvrTrashPacket
+            move.l  D2,(A5)
 
             move.l  gMyDCE,A5
-            btst.b  #7,5(A5)            ; Check drvrActive flag (is there an outstanding request?)
-            beq     .trashpacket
-
-            cmp.b   #10,-1(A3)          ; DDP protocol type better be ATBOOT
-            bne.s   .trashpacket
-
-            moveq.l #8,D3
-            jsr     (A4)                ; Read 8 bytes
-
-            cmp.w   #$8101,-8(A3)       ; Check protocol and version
-            bne.s   .trashpacket
-
-            lea     gQSeqNum,A5         ; Check packet sequence number
-            move.w  (A5),D2
-            cmp.w   -6(A3),D2
-            bne.s   .trashpacket
-
-            move.l  gMyDCE,A5           ; Get current param block
             move.l  6+2(A5),A5          ; dCtlQHdr.qHead
 
-            move.l  $28(A5),D2          ; keep this in D2 because we will use it in a sec
-            move.l  -4(A3),D3
-            lsl.l   #4,D3
-            lsl.l   #5,D3
-            cmp.l   D3,D2               ; ioActCount = this offset?
-            bne.s   .outoforder
+            move.l  $28(A5),D2          ; increment ioActCount, check ioReqCount
+            add.l   #512,D2
+            move.l  D2,$28(A5)
+            sub.l   $24(A5),D2          ; D2 gets saved across the coming ReadRest call
 
             move.l  $20(A5),A3          ; ioBuffer
-            add.l   D2,A3               ; A3 = ioBuffer + ioReqDone
-            move.l  #512,D3             ; D3 = bytes to read = 512
-            add.l   D3,D2               ; D2 = new ioReqDone = old ioReqDone + 512
-            jsr     2(A4)               ; ReadRest
-                                        ; From this point on, use A1 instead of A5
+            asl.w   #5,D0
+            asl.w   #4,D0
+            add.w   D0,A3               ; A3 = ioBuffer + thisPackOffset
+            move.l  #512,D3             ; D3 = size
+            jsr     2(A4)               ; ReadRest!
 
-            move.l  gMyDCE,A1           ; Get current param block
-            move.l  6+2(A1),A1          ; dCtlQHdr.qHead
+            tst.l   D2
+            beq.s   .ioDone
+            rts
 
-            move.l  D2,$28(A1)          ; update ioActCount
-            cmp.l   $24(A1),D2          ; does it equal ioReqCount?
-            bne.s   .rts
+.ioDone     lea     gExpectHdr,A1
+            clr.w   (A1)
 
-            lea     gMyDCE,A1
-            move.l  (A1),A1
-
+            move.l  gMyDCE,A1
             moveq.l #0,D0
             move.l  $8FC,A0             ; jIODone (D0 = result, A1 = DCE)
             jmp     (A0)
 
 
-.outoforder ; apparent dropped packet, so please resend
-            moveq.l #0,D3
-            jsr     2(A4)               ; ReadRest nothing
 
-            movem.l A0-A4,-(SP)
-            move.l  gMyDCE,A0           ; Get current param block
-            move.l  6+2(A0),A0          ; dCtlQHdr.qHead
-            bsr     DrvrTransmitRequest
-            movem.l (SP)+,A0-A4
+DrvrDidReceiveWrite
+            bsr     DrvrDidReceiveWrite
 
-            rts
-
-.trashpacket
+DrvrTrashPacket
             moveq.l #0,D3
             jmp     2(A4)               ; ReadRest nothing
-
-.rts
-            rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -503,7 +569,7 @@ status_fmtLstCode ; tell them about our size
 status_drvStsCode ; tell them about some of our flags
             move.w  #0,$1C(A0)          ; csParam[0..1] = track no (0)
             move.l  #$80080000,$1C+2(A0) ; csParam[2..5] = same flags as dqe
-            
+
             move.w  #0,$10(A0)          ; ioResult = noErr
             bra     DrvrFinish
 

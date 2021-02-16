@@ -200,7 +200,7 @@ while 1:
             # // while others are stored on disk by the boot server
             # typedef struct
             # {
-            #     char    serverName[serverNameLength];   // server name to boot off of 
+            #     char    serverName[serverNameLength];   // server name to boot off of
             #     char    serverZone[zoneNameLength];     // and the zone it lives in
             #     char    serverVol[volNameLength];       // the volume name
             #     short   serverAuthMeth;                 // authentication method to use (none, clear txt, rand)
@@ -279,7 +279,7 @@ while 1:
                     # break # wait for another request, you mofo!
 
         elif boot_type == 128:
-            boot_seq, boot_blkoffset, boot_blkcnt, boot_imgname = struct.unpack_from('>HLL32p', data)
+            boot_seq, boot_blkoffset, boot_blkcnt = struct.unpack_from('>HLL', data); boot_imgname = b'A608.dsk'
             boot_imgname = boot_imgname.decode('mac_roman')
             for blk in range(boot_blkoffset, boot_blkoffset + boot_blkcnt):
                 thisblk = image2dict[boot_imgname][blk*512:blk*512+512]
@@ -287,7 +287,7 @@ while 1:
                     dest_node=llap_src_node, dest_socket=ddp_src_socket,
                     src_node=99, src_socket=99,
                     proto_type=10,
-                    data=struct.pack('>BBHL', 129, 1, boot_seq, blk-boot_blkoffset) + thisblk
+                    data=struct.pack('>BBH', 129, blk-boot_blkoffset, boot_seq) + thisblk
                 ),
                 (MCAST_ADDR, MCAST_PORT))
 

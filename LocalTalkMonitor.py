@@ -90,26 +90,20 @@ while 1:
             print('malformed short packet %r' % data.hex())
             continue
         boot_type, boot_vers = struct.unpack_from('>BB', data)
-        data = data[2:]
 
         if boot_type == 1:
-            print('    ATBOOT "syn"', data.hex())
+            print('    ATBOOT "syn"', data[2:].hex())
         elif boot_type == 2:
-            print('    ATBOOT "ack"', data.hex())
+            print('    ATBOOT "ack"', data[2:].hex())
         elif boot_type == 3:
-            print('    ATBOOT image request', data.hex())
+            print('    ATBOOT image request', data[2:].hex())
         elif boot_type == 4:
-            print('    ATBOOT image reply', data.hex())
-        elif boot_type == 128:
-            a, b, c, d = struct.unpack_from('>HLL32p', data)
-            d = d.decode('mac_roman')
-            print(f'    ATBOOT Elliot block seq={hex(a)} blkIdx={hex(b)} byteLen={hex(c)} img={repr(d)}')
-        elif boot_type == 129:
-            a, b = struct.unpack_from('>HL', data)
-            print(f'    ATBOOT Elliot reply seq={hex(a)} relByteIdx={hex(b)}')
+            print('    ATBOOT image reply', data[2:].hex())
+        elif boot_type >= 0x80:
+            print('    ATBOOT Elliot', data.hex())
         else:
-            print('    ATBOOT', boot_type, boot_vers, data.hex())
+            print('    ATBOOT ???', boot_type, boot_vers, data[2:].hex())
 
     else:
-        print('Totally unknown DDP type', ddp_proto_type)        
+        print('Totally unknown DDP type', ddp_proto_type)
         print('    ' + data.hex())
