@@ -474,8 +474,7 @@ DrvrSockListener
             jsr     (A4)                ; Read the nice short packet header
             move.l  -4(A3),D0
 
-            lea     gExpectHdr,A5       ; Check the packet header
-            move.l  (A5),D2
+            move.l  gExpectHdr,D2       ; Check the packet header
             eor.l   D0,D2
             swap    D2
             clr.b   D2
