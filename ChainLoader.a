@@ -480,7 +480,7 @@ DrvrSockListener
             eor.l   D2,D3
             swap    D3
             clr.b   D3
-            bne.s   DrvrTrashPacket
+            bne     DrvrTrashPacket
 
             btst    #25,D2
             bne.s   DrvrDidReceiveWrite
@@ -488,16 +488,21 @@ DrvrSockListener
 
 DrvrDidReceiveRead
             swap    D2
-            and.w   #32-1,D2            ; D2.W = block offset
-
-            move.l  D2,D3
-            asl.w   #8,D3
-            add.w   D3,D3               ; D3.W = byte offset
+            and.l   #32-1,D2            ; D2.L = block offset within 32blk chunk
 
             move.l  gMyDCE,A3
-            move.l  6+2(A3),A3          ; dCtlQHdr.qHead
+            move.l  6+2(A3),A3          ; A3 = dCtlQHdr.qHead
+
+            move.l  $28(A3),D3          ; D3 = .ioActCount...
+            lsr.l   #5,D3
+            lsr.l   #4,D3               ; ...now in number of blocks
+            and.l   #-32,D3             ; ...rounded down to a block chunk
+            add.l   D2,D3               ; ...added back the received block
+            asl.l   #8,D3
+            add.l   D3,D3               ; ... = byte offset within buffer
+
             move.l  $20(A3),A3          ; .ioBuffer
-            add.w   D3,A3               ; A3 = ioBuffer + thisPackOffset
+            add.l   D3,A3               ; A3 = ioBuffer + offset
             move.l  #512,D3             ; D3 = size
             jsr     2(A4)               ; ReadRest (A3=dest, D3=length)
             bne     DrvrTrashPacket
