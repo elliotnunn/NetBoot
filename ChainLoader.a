@@ -511,21 +511,19 @@ DrvrDidReceiveRead
             move.l  gMyDCE,A0
             move.l  6+2(A0),A0          ; dCtlQHdr.qHead
 
-            move.l  $28(A0),D0
+            move.l  $28(A0),D0          ; Increment ioActCount and cmp with ioReqCount
             add.l   #512,D0
             move.l  D0,$28(A0)
             cmp.l   $24(A0),D0
             beq.s   .ioDone
-            addq.l  #1,D1
-            beq     DrvrSendRead
-            rts
 
-.nextChunk
-            move.w  #$1111,D0
-            dc.w    $A9C9
-            rts
+            addq.l  #1,D1               ; If bitmap=$FFFFFFFF then get the next chunk of 32
+            beq     DrvrSendRead        ; A0 must be the PB
 
-.ioDone     lea     gExpectHdr,A1
+            rts                         ; Just return to await more packets.
+
+
+.ioDone     lea     gExpectHdr,A1       ; Disable this socket listener
             clr.w   (A1)
 
             move.l  gMyDCE,A1
@@ -536,7 +534,8 @@ DrvrDidReceiveRead
 
 
 DrvrDidReceiveWrite
-            bsr     DrvrDidReceiveWrite
+            move.w  #$5555,D0
+            dc.w    $A9C9
 
 DrvrTrashPacket
             moveq.l #0,D3
