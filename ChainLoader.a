@@ -478,7 +478,7 @@ DrvrDidSendWrite ; completion routine for the above control call..
 
             cmp.l   D0,D1
             beq.s   .sentAllOfChunk
-            and.l   #32-1,D0
+            and.l   #(32-1)*512,D0
             beq.s   .sentAllOfChunk
             bra     DrvrSendWrite
 
