@@ -36,6 +36,8 @@ image += bytes(5)
 image += b'Elliot'*10000 # padding, too much!
 image = append_snefru(image)
 
+writable_image = bytearray(open('A608.dsk', 'rb').read())
+
 open('/tmp/imgdebug', 'wb').write(image)
 
 # typedef short (*j_code)(    short       command,  # SP+4 (sign-extend to long)
@@ -90,6 +92,10 @@ def pstring(x):
         pass
 
     return bytes([len(x)]) + x
+
+
+
+buf_sequence = -1
 
 
 
@@ -178,6 +184,7 @@ while 1:
 
         if len(data) < 2: continue
         boot_type, boot_vers = struct.unpack_from('>BB', data)
+        whole_data = data
         data = data[2:]
 
         # rbNullCommand       EQU     0                       ; ignore this one
@@ -283,12 +290,33 @@ while 1:
             boot_blkcnt = min(boot_blkcnt, 32)
             boot_imgname = boot_imgname.decode('mac_roman')
             for blk in range(boot_blkoffset, boot_blkoffset + boot_blkcnt):
-                thisblk = image2dict[boot_imgname][blk*512:blk*512+512]
+                thisblk = writable_image[blk*512:blk*512+512]
                 sock.sendto(mk_ddp(
                     dest_node=llap_src_node, dest_socket=ddp_src_socket,
                     src_node=99, src_socket=99,
                     proto_type=10,
                     data=struct.pack('>BBH', 129, blk-boot_blkoffset, boot_seq) + thisblk
+                ),
+                (MCAST_ADDR, MCAST_PORT))
+
+        elif boot_type == 130:
+            boot_type, blk, seq, hunk_start = struct.unpack_from('>BBHL', whole_data)
+            if seq != buf_sequence:
+                buf_sequence = seq
+                buf = bytearray(32*512)
+
+            putdata = whole_data[8:]
+            buf[(blk % 32) * 512:(blk % 32) * 512 + len(putdata)] = putdata
+
+            if blk & 0x80:
+                del buf[(blk % 32) * 512 + 512:]
+                writable_image[hunk_start*512:hunk_start*512+len(buf)] = buf
+
+                sock.sendto(mk_ddp(
+                    dest_node=llap_src_node, dest_socket=ddp_src_socket,
+                    src_node=99, src_socket=99,
+                    proto_type=10,
+                    data=struct.pack('>BBH', 131, 0, seq)
                 ),
                 (MCAST_ADDR, MCAST_PORT))
 

@@ -96,7 +96,7 @@ getBootBlocks
             lsl.l   #4,D0
             swap    D0
             move.l  D0,$C(A3)                               ; dQDrvSz/dQDrvSz2
-            move.l  #$80080000,-4(A3)                       ; secret flags, see http://mirror.informatimago.com/next/developer.apple.com/documentation/mac/Files/Files-112.html
+            move.l  #$00080000,-4(A3)                       ; secret flags, see http://mirror.informatimago.com/next/developer.apple.com/documentation/mac/Files/Files-112.html
             move.w  #1,4(A3)                                ; qType
             move.w  #0,$A(A3)                               ; dQFSID should be for a native fs
 
@@ -323,7 +323,7 @@ DrvrPrime
 
 
 DrvrSendRead
-; Called from Prime routine: PB/DCE in A0/A1 must be preserved (but we only require A0)
+; Called from Prime routine or socket listener: PB/DCE in A0/A1 must be preserved (but we only require A0)
             lea     gExpectHdr,A2
             clr.w   (A2)+
             addq.w  #1,(A2)             ; packet filter sequence word
@@ -390,17 +390,100 @@ DrvrDidSendRead
             rts ; TODO: set up a timeout/retry task
 
 
-DrvrSendFirstWrite
-            ; yech...
-            ; fall through...
-
 DrvrSendWrite
-            nop
+; Called from Prime routine or socket listener: PB/DCE in A0/A1 must be preserved (but we only require A0)
+
+; D1 = block index within chunk
+            move.l  $28(A0),D1
+            lsr.l   #5,D1
+            lsr.l   #4,D1
+            move.l  D1,D0
+            and.l   #32-1,D1
+
+            move.l  $28(A0),D2
+            add.l   #512,D2
+            cmp.l   $24(A0),D2
+            bne.s   .notLastBlock
+            bset    #7,D1
+.notLastBlock
+
+; D0 = first block of chunk
+            and.l   #-32,D0
+            add.l   $2E(A0),D0
+
+            tst.l   D1
+            bne.s   .notFirstBlockOfChunk
+            lea     gExpectHdr,A2
+            clr.w   (A2)+
+            addq.w  #1,(A2)             ; packet filter sequence word
+.notFirstBlockOfChunk
+
+            lea     gSaveAddr,A2
+            lea     gAddr,A3
+            move.b  (A2)+,(A3)+ ; copy the address struct, dang it!
+            move.l  (A2)+,(A3)+
+            move.l  (A2)+,(A3)+
+            move.l  (A2)+,(A3)+
+            move.w  (A2)+,(A3)+
+            move.b  (A2)+,(A3)+
+
+            lea     gQuery,A2
+            move.b  #$82,(A2)+                      ; Means a polite request
+            move.b  D1,(A2)+                        ; nth block of this chunk follows
+            move.w  gExpectHdr+2,(A2)+
+            move.l  D0,(A2)+                        ; first block of this chunk
+
+            lea     gWDS,A2
+            clr.w   (A2)+                           ; WDS+0: reserved field
+            pea     gAddr
+            move.l  (SP)+,(A2)+                     ; WDS+2: pointer to address struct
+
+            move.w  #8,(A2)+                        ; WDS: push length/ptr of header
+            pea     gQuery
+            move.l  (SP)+,(A2)+
+
+            move.w  #512,(A2)+                      ; WDS: push length/ptr of body
+            move.l  $20(A0),D0                      ;      ptr = ioBuffer
+            add.l   $28(A0),D0                      ;          + ioActCount
+            move.l  D0,(A2)+
+
+            clr.w   (A2)+                           ; WDS: end with zero
+
+            move.l  A0,-(SP)
+            lea     gMyPB,A0
+            bsr     DrvrClearBlock
+            pea     DrvrDidSendWrite
+            move.l  (SP)+,$C(A0)            ; ioCompletion
+            move.w  #-10,$18(A0)            ; ioRefNum = .MPP
+            move.w  #246,$1A(A0)            ; csCode = writeDDP
+            move.b  #10,$1C(A0)             ; socket = 10 (hardcoded)
+            move.b  #1,$1D(A0)              ; set checksumFlag
+            pea     gWDS
+            move.l  (SP)+,$1E(A0)           ; wdsPointer to our WriteDataStructure
+            dc.w    $A404                   ; _Control ,async
+            move.l  (SP)+,A0
+
+            rts
 
 
-DrvrDidSendWrite
-            nop
+DrvrDidSendWrite ; completion routine for the above control call..
+            ; need to test whether to send another, or switch to wait mode...
 
+            move.l  gMyDCE,A0
+            move.l  6+2(A0),A0          ; A3 = dCtlQHdr.qHead = ParamBlk
+
+            movem.l $24(A0),D0/D1       ; D0=ioReqCount, D1=ioActCount
+            add.l   #512,D1
+            move.l  D1,$28(A0)
+
+            cmp.l   D0,D1
+            beq.s   .sentAllOfChunk
+            and.l   #32-1,D0
+            beq.s   .sentAllOfChunk
+            bra     DrvrSendWrite
+
+.sentAllOfChunk
+            rts ; TODO: set up a timeout/retry task
 
 
 
@@ -520,7 +603,7 @@ DrvrDidReceiveRead
             add.l   #512,D0
             move.l  D0,$28(A0)
             cmp.l   $24(A0),D0
-            beq.s   .ioDone
+            beq.s   DrvrIODone
 
             addq.l  #1,D1               ; If bitmap=$FFFFFFFF then get the next chunk of 32
             beq     DrvrSendRead        ; A0 must be the PB
@@ -528,7 +611,26 @@ DrvrDidReceiveRead
             rts                         ; Just return to await more packets.
 
 
-.ioDone     lea     gExpectHdr,A1       ; Disable this socket listener
+DrvrDidReceiveWrite
+            moveq.l #0,D3
+            jsr     2(A4)               ; ReadRest (D3=0 i.e. discard)
+
+            move.l  gMyDCE,A0
+            move.l  6+2(A0),A0          ; A3 = dCtlQHdr.qHead = ParamBlk
+
+            movem.l $24(A0),D0/D1       ; D0=ioReqCount, D1=ioActCount
+            cmp.l   D0,D1
+            blo     DrvrSendWrite
+
+            bra.s   DrvrIODone
+
+
+
+
+
+
+DrvrIODone
+            lea     gExpectHdr,A1       ; Disable this socket listener
             clr.w   (A1)
 
             move.l  gMyDCE,A1
@@ -537,10 +639,6 @@ DrvrDidReceiveRead
             jmp     (A0)
 
 
-
-DrvrDidReceiveWrite
-            move.w  #$5555,D0
-            dc.w    $A9C9
 
 DrvrTrashPacket
             moveq.l #0,D3
@@ -581,7 +679,7 @@ status_fmtLstCode ; tell them about our size
 
 status_drvStsCode ; tell them about some of our flags
             move.w  #0,$1C(A0)          ; csParam[0..1] = track no (0)
-            move.l  #$80080000,$1C+2(A0) ; csParam[2..5] = same flags as dqe
+            move.l  #$00080000,$1C+2(A0) ; csParam[2..5] = same flags as dqe
 
             move.w  #0,$10(A0)          ; ioResult = noErr
             bra     DrvrFinish
