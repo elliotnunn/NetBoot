@@ -77,7 +77,7 @@ GoHereFromReadTrap
 ; Now we are outside .netBOOT/.ATBOOT. We can shut them down, and set up our driver in a clean environment.
 
             move.l  ROMAfterReadTrap,-(SP)  ; our return address is to ROM
-            sub.l   #2,-(SP)                ; repeating the _Read trap
+            sub.l   #2,(SP)                 ; repeating the _Read trap
             movem.l A0-A6/D0-D7,-(SP)       ; save registers conservatively (especially A0)
 
     ; A4 = param block to the .netBOOT _Read call, because we will use it a lot
