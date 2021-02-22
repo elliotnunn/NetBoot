@@ -1,19 +1,173 @@
-myUnitNum       equ     52
-myDRefNum       equ     ~myUnitNum
-
-serverBufSize   equ     32
-
-
 Code
 
-; This is the entry point, which the ROM jumps to with one of three
-; selectors. This whole block of code lives inside the system heap, in a
-; block that the ROM code forgets ever to free. So we simply drop our
-; driver here, and relegate the one-time init code to the end of the
-; block.
+; The ROM issued a _Read call that eventually reached here.
+; We need to handle this _Read trap directly, without the intervening .netBOOT and .ATBOOT drivers.
+; We do this by rewinding the Device Manager's return address by 2 bytes.
 
-            bra     OneTimeInitCode
-            dc.l    'NtBt'
+; Why?
+; The ROM network boot mechanism is complicated and buggy.
+; The workarounds are difficult.
+; Therefore this big hack obviates many little hacks.
+
+
+; First problem: this is not a safe place to keep code. Jump away.
+; (Using the heap while all the netBOOT junk is there would cause fragmentation.)
+            lea     ResumeAfterCopy,A0
+            move.l  #CodeEnd-ResumeAfterCopy,D0
+            lea     4096(A5),A1
+            dc.w    $A02E ; _BlockMove
+            jmp     4096(A5)
+ResumeAfterCopy
+
+; Salvage some possibly useful information from ATBOOT, while it is still running:
+
+    ; Server address
+            move.l  8(SP),A0    ; global pointer
+            move.l  24(A0),D0   ; AddrBlock
+            lea     gSaveAddr,A0
+            move.b  #10,15(A0)  ; hardcode DDP protocol ID
+            move.b  D0,13(A0)   ; socket
+            lsr.w   #4,D0
+            lsr.w   #4,D0
+            move.b  D0,11(A0)   ; node
+            swap    D0
+            move.w  D0,7(A0)    ; network
+
+    ; User record
+            lea     gUserRec,A1
+            move.l  8(SP),A0    ; global pointer
+            move.l  40(A0),A0
+            move.l  #574,D0
+            dc.w    $A02E ; _BlockMove
+
+
+; Currently the call stack looks like this:
+;   ROM _Read to get boot blocks
+;     .netBOOT Read routine
+;       .ATBOOT Control routine
+;         direct call to this block of code
+
+; But we want to close and remove .netBOOT & .ATBOOT, so we need to return
+; from their Device Manager calls, and steal control from the ROM.
+; We do this by scanning the stack for the return address of the original _Read.
+            move.l  $2AE,A0                 ; A0 = ROMBase (lower limit)
+            lea     $4000(A0),A1            ; A1 = ROMBase + a bit (upper limit)
+            lea     -2(SP),A2
+.loop       subq.l  #2,A2                   ; A2 = where we search the stack
+            move.l  (A2),A3                 ; A3 = potential return address
+            cmp.l   A0,A3                   ; lower limit check
+            bls.s   .loop
+            cmp.l   A1,A3                   ; upper limit check
+            bhi.s   .loop
+            cmp.w   #$A002,-2(A3)           ; _Read trap check
+            bne.s   .loop
+
+            pea     GoHereFromReadTrap      ; take over
+            move.l  (SP)+,(A2)
+            lea     ROMAfterReadTrap,A2     ; save original for later
+            move.l  A3,(A2)
+
+            moveq.l #-1,D0      ; .netBOOT/.ATBOOT don't do any more damage if an error is returned
+            rts
+
+ROMAfterReadTrap
+            dc.l    0
+
+GoHereFromReadTrap
+; Now we are outside .netBOOT/.ATBOOT. We can shut them down, and set up our driver in a clean environment.
+
+            move.l  ROMAfterReadTrap,-(SP)  ; our return address is to ROM
+            sub.l   #2,-(SP)                ; repeating the _Read trap
+            movem.l A0-A6/D0-D7,-(SP)       ; save registers conservatively (especially A0)
+
+    ; A4 = param block to the .netBOOT _Read call, because we will use it a lot
+            move.l  A0,A4
+
+    ; Close and delete .netBOOT (which will close .ATBOOT)
+            lea     -$32(SP),SP
+            move.l  SP,A0
+            move.w  $18(A4),$18(A0) ; ioRefNum
+            dc.w    $A001 ; _Close
+            lea     $32(SP),SP
+            move.w  $18(A4),D0 ; ioRefNum
+            dc.w    $A03E ; _DrvrRemove
+            move.w  #-52,D0 ; ioRefNum      ; also delete .ATBOOT for neatness
+            dc.w    $A03E ; _DrvrRemove
+
+    ; A3 = our driver in sysheap (plus 574 bytes for the user record)
+            move.l  #DrvrEnd-DrvrBase+574,D0
+            dc.w    $A51E ; NewPtrSys
+            move.l  A0,A1
+            lea     DrvrBase,A0
+            move.l  #DrvrEnd-DrvrBase+574,D0
+            dc.w    $A02E ; BlockMove
+            move.l  A1,A3
+
+    ; Install the driver in the unit table. Take over netBOOT's old unit number.
+            move.w  $18(A4),D0 ; ioRefNum
+            dc.w    $A43D ; _DrvrInstall ReserveMem
+
+    ; That call created a driver control entry (DCE). Find and lock.
+            move.l  $11C,A0 ; UTableBase
+            move.w  $18(A4),D0 ; ioRefNum
+            not.w   D0
+            lsl.w   #2,D0
+            add.w   D0,A0
+            move.l  (A0),A0
+            dc.w    $A029 ; _HLock
+            move.l  (A0),A0
+
+    ; Populate the empty DCE that DrvrInstall left us (forget fields related desk accessories)
+            move.l  A3,(A0)                                 ; dCtlDriver = driver pointer (not handle)
+            move.w  (A3),4(A0)                              ; dCtlFlags = drvrFlags
+
+    ; Open our driver
+            lea     -$32(SP),SP
+            move.l  SP,A0
+            bsr     clearblock
+            lea     DrvrName,A1
+            move.l  A1,$12(A0)                              ; IOFileName
+            dc.w    $A000                                   ; _Open
+            lea     $32(SP),SP
+
+    ; Create & add a drive queue entry (DQE).
+            move.l  #$16,D0
+            dc.w    $A71E ; _NewPtrSysClear
+            add.l   #4,A0                                   ; has some cheeky flags at negative offset
+
+            move.l  #$00080000,-4(A0)                       ; secret flags, see http://mirror.informatimago.com/next/developer.apple.com/documentation/mac/Files/Files-112.html
+            move.w  #1,4(A0)                                ; qType
+            ;move.w  #0,$A(A0)                               ; dQFSID should be for a native fs
+            ;move.l  #0,$C(A0)                               ; dQDrvSz/dQDrvSz2 ; whoa, better fix this!
+
+            move.l  $16(A4),D0                              ; scoop drivenum & driver refnum from _Read PB
+            dc.w    $A04E                                   ; _AddDrive (A0=DQE, D0=drvnum/drefnum)
+
+    ; Open .MPP (still open?) & our DDP socket
+            lea     -$32(SP),SP
+            move.l  SP,A0
+            bsr     clearblock
+            pea     MPPName
+            move.l  (SP)+,$12(A0) ; ioNamePtr
+            dc.w    $A000 ; _Open
+            move.w  #248,$1A(A0) ; csCode = openSkt
+            move.b  #10,$1C(A0) ; socket = 10, same as ATBOOT uses
+            pea     DrvrSockListener-DrvrBase(A3)
+            move.l  (SP)+,$1E(A0) ; listener
+            dc.w    $A004 ; _Control
+            lea     $32(SP),SP
+
+; Re-execute the _Read trap in ROM
+            movem.l (SP)+,A0-A6/D0-D7
+            rts
+
+MPPName     dc.b    4, '.MPP', 0
+
+clearblock  move.w  #$32/2-1,D0
+.loop       clr.w   (A0)+
+            dbra    D0,.loop
+            lea     -$32(A0),A0
+            rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -28,7 +182,7 @@ DrvrBase
             dc.w    DrvrControl-DrvrBase
             dc.w    DrvrStatus-DrvrBase
             dc.w    DrvrClose-DrvrBase
-DrvrName    dc.b    8, ".LANDisk", 0
+DrvrName    dc.b    8, ".netBOOT", 0
 
 g
 gNumBlks    dc.l    0               ; the source of all truth
@@ -562,303 +716,8 @@ DrvrIcon
             dc.l    %11111111111111111111111111111111
             dc.l    %11111111111111111111111111111111
             dc.b    22, "AppleTalk NetBoot Disk", 0
+
+gUserRec ; append some 574 zeroes here later on
+
 DrvrEnd
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-OneTimeInitCode
-            cmp.l   #1,4(SP)
-            beq     getBootBlocks
-            cmp.l   #2,4(SP)
-            beq     getSysVol
-            cmp.l   #3,4(SP)
-            beq     mountSysVol
-
-            move.l  #-1,d0
-            rts
-
-
-getBootBlocks
-; Now is the time to install our DRVR because we are guaranteed an opportunity to boot if we don't fuck up.
-
-            link    A6,#-$32
-            movem.l A2-A4/D3-D7,-(SP)
-
-    ; Patch the server address into the DRVR code (TODO: concentrate all global patches here)
-            move.l  12(A6),A0   ; global pointer
-            move.l  24(A0),D0   ; AddrBlock
-
-            lea     gSaveAddr,A0
-
-            move.b  #10,15(A0)  ; hardcode DDP protocol ID
-            move.b  D0,13(A0)   ; socket
-            lsr.w   #4,D0
-            lsr.w   #4,D0
-            move.b  D0,11(A0)   ; node
-            swap    D0
-            move.w  D0,7(A0)    ; network
-
-    ; Patch the disk image name and size into the DRVR code
-;            bsr     BootPicker                              ; A0 = pstring ptr
-;            lea     gNumBlks,A1
-;            move.l  -4(A0),(A1)                             ; the size is underneath the pstring ptr
-;            move.l  -4(A0),D6                               ; D6 = block count, needed for DQE
-;            lea     gQFilename,A1                           ; A1 = dest
-;            moveq.l #1,D0
-;            add.b   (A0),D0
-;            dc.w    $A22E                                   ; _BlockMoveData
-
-    ; Install the driver in the unit table
-            lea     DrvrBase,A0
-            move.l  #myDRefNum,D0
-            dc.w    $A43D                                   ; _DrvrInstall ReserveMem
-
-    ; That call created a DCE. Find and lock.
-            move.l  $11C,A0                                 ; UTableBase
-            move.l  myUnitNum*4(A0),A0
-            dc.w    $A029                                   ; _HLock
-            move.l  (A0),A0
-
-    ; Populate the empty DCE that DrvrInstall left us (forget fields related desk accessories)
-            lea     DrvrBase,A2
-            move.l  A2,0(A0)                                ; dCtlDriver = driver pointer (not handle)
-            move.w  0(A2),4(A0)                             ; dCtlFlags = drvrFlags
-
-    ; Open the driver
-            lea     -$32(SP),SP
-            move.l  SP,A0
-            bsr     clearblock
-            lea     DrvrName,A1
-            move.l  A1,$12(A0)                              ; IOFileName
-            dc.w    $A000                                   ; _Open
-            lea     $32(SP),SP
-
-    ; Create a DQE. The fate of this exact DQE is to be copied and deleted by ROM code.
-            move.l  #$16,D0
-            dc.w    $A71E                                   ; _NewPtr ,Sys,Clear
-            add.l   #4,A0                                   ; has some cheeky flags at negative offset
-            move.l  A0,A3
-            lea     gDQEAddr,A0
-            move.l  A3,(A0)
-
-    ; Populate the DQE
-            move.l  D6,D0                                   ; needs fixing for Ruby Slipper
-            lsl.l   #5,D0                                   ; convert to bytes
-            lsl.l   #4,D0
-            swap    D0
-            move.l  D0,$C(A3)                               ; dQDrvSz/dQDrvSz2
-            move.l  #$00080000,-4(A3)                       ; secret flags, see http://mirror.informatimago.com/next/developer.apple.com/documentation/mac/Files/Files-112.html
-            move.w  #1,4(A3)                                ; qType
-            move.w  #0,$A(A3)                               ; dQFSID should be for a native fs
-
-    ; Into the drive queue (which will further populate the DQE)
-            bsr     findFreeDriveNum                        ; get drvnum in D0
-            lea     gDriveNum,A0
-            move.w  D0,(A0)
-            swap    D0
-            move.w  #myDRefNum,D0                           ; D0.H = drvnum, D0.L = drefnum
-            move.l  D0,D3                                   ; we need this in a sec
-            move.l  A3,A0
-            dc.w    $A04E                                   ; _AddDrive
-
-    ; Open our socket
-            lea     -$32(SP),SP
-            move.l  SP,A0
-            bsr     clearblock
-            move.w  #-10,$18(A0)                            ; ioRefNum = .MPP
-            move.w  #248,$1A(A0)                            ; csCode = openSkt
-            move.b  #10,$1C(A0)                             ; socket = 10, same as ATBOOT uses
-            lea     DrvrSockListener,A2
-            move.l  A2,$1E(A0)                              ; listener
-            dc.w    $A004                                   ; _Control
-            lea     $32(SP),SP
-
-    ; Get the real 1024k of boot blocks to a temp location
-    ; (it will eventually get trashed, but we have time)
-            lea     4096(A5),A4                             ; above BootGlobals
-
-            lea     -$32(SP),SP
-            move.l  SP,A0
-            bsr     clearblock
-            move.l  D3,22(A0)                               ; IOVRefNum=drvnum, IORefNum=drefnum
-            move.l  A4,32(A0)                               ; IOBuffer
-            move.l  #1024,36(A0)                            ; IOReqCount = 2 blocks
-            move.l  #0,46(A0)                               ; IOPosOffset = 0
-            move.w  #1,44(A0)                               ; IOPosMode = from start
-            dc.w    $A002                                   ; _Read
-            lea     $32(SP),SP
-
-    ; Put the boot blocks in netBOOT's global data structure as requested
-            move.l  A4,A0
-            move.l  12(A6),A1
-            lea     $BA(A1),A1
-            move.l  #$138,D0
-            dc.w    $A22E                   ; _BlockMoveData
-
-            move.l  A1,A0                   ; A0 = truncated BBs
-            move.l  A4,A1                   ; A1 = full-length BBs
-            bsr     HealInjuredBootBlocks
-
-    ; Clean up our stack frame
-            movem.l (SP)+,A2-A4/D3-D7
-            unlk    A6
-
-            move.l  #0,D0
-            rts
-
-getSysVol ; pointless call :(
-            move.l  #0,D0
-            rts
-
-mountSysVol
-            link    A6,#-$32
-            movem.l A2-A4/D3,-(SP)
-
-            lea     gDriveNum,A0
-            move.w  (A0),D3
-
-    ; System 7 needs MountVol to return the right vRefNum
-            move.l  $366,A0         ; Steal existing PB from FSQHead
-
-    ; Set aside the FS queue to stop MountVol deadlocking
-            move.w  $360,-(SP)      ; FSBusy
-            move.l  $362,-(SP)      ; FSQHead
-            move.l  $366,-(SP)      ; FSQTail
-            clr.w   $360
-            clr.l   $362
-            clr.l   $366
-
-    ; MountVol
-            bsr     clearblock
-            move.w  D3,$16(A0)                              ; ioVRefNum = ioDrvNum = the drive number
-            dc.w    $A00F                                   ; _MountVol
-            bne     error
-
-    ; Restore the FS queue
-            move.l  (SP)+,$366
-            move.l  (SP)+,$362
-            move.w  (SP)+,$360
-
-    ; Tattle about the DQE and VCB
-            move.l  4+12(A6),A1
-            move.l  $356+2,A0                               ; VCBQHdr.QHead (maybe I should be clever-er)
-            move.l  A0,(A1)
-
-            move.l  4+16(A6),A1
-            lea     gDQEAddr,A0
-            move.l  (A0),(A1)
-
-            lea     Code,A0
-            move.l  #OneTimeInitCode-Code,D0
-            dc.w    $A020                                   ; Cut the unnecessary code off me
-
-            movem.l (SP)+,A2-A4/D3
-            unlk    A6
-
-            move.l  #0,d0
-            rts
-
-error
-            move.w  #$7777,D0
-            dc.w    $A9C9
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-gDriveNum   dc.w    0
-gDQEAddr    dc.l    0
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-clearblock
-            move.w  #$32/2-1,D0
-.loop       clr.w   (A0)+
-            dbra    D0,.loop
-            lea     -$32(A0),A0
-            rts
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-findFreeDriveNum ; and return it in D0. Free to trash the usual registers
-    ; Find a free drive number (nicked this code from BootUtils.a:AddMyDrive)
-            LEA     $308,A0                     ; [DrvQHdr]
-            MOVEQ   #4,D0                       ; start with drive number 4
-.CheckDrvNum
-            MOVE.L  2(A0),A1                    ; [qHead] start with first drive
-.CheckDrv
-            CMP.W   6(A1),D0                    ; [dqDrive] does this drive already have our number?
-            BEQ.S   .NextDrvNum                 ; yep, bump the number and try again.
-            CMP.L   6(A0),A1                    ; [qTail] no, are we at the end of the queue?
-            BEQ.S   .GotDrvNum                  ; if yes, our number's unique! Go use it.
-            MOVE.L  0(A1),A1                    ; [qLink] point to next queue element
-            BRA.S   .CheckDrv                   ; go check it.
-
-.NextDrvNum
-    ; this drive number is taken, pick another
-            ADDQ.W  #1,D0                       ; bump to next possible drive number
-            BRA.S   .CheckDrvNum                ; try the new number
-.GotDrvNum
-            rts
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-HealInjuredBootBlocks ; patch the BBs to fix themselves if executed
-
-; Args: A0 = truncated boot blocks (138b), A1 = correct boot blocks (1024b)
-
-; If these boot blocks are executable (from offset 2), then the 138 bytes of
-; declarative data copied by the netBOOT driver are not enough. We edit the boot
-; blocks with a stub that copies the entire 1k into place. System 7 needs this.
-
-; This unfortunately clobbers the declarative part of the boot blocks, so we need to
-; check for declarative boot blocks and leave them unchanged
-
-            move.l  A0,-(SP)                ; Save A1 to a global, but need to keep A0
-            lea     .gFullLoc,A0
-            move.l  A1,(A0)
-            move.l  (SP)+,A0
-
-            move.b  6(A0),D0                ; BBVersion
-            cmp.b   #$44,D0
-            beq.s   .executable
-            and.b   #$C0,D0
-            cmp.b   #$C0,D0
-            beq.s   .executable
-            rts
-
-; Relevant structure of the boot blocks:
-; 0-1       bbID        always 'LK'
-; 2-5       bbEntry     BRA.W base+128
-; 6-7       bbVersion   interpreted as above
-; 8-137                 data
-; 138-1023              code (MISSING from netBOOT's short version)
-
-; Our self-repairing boot blocks:
-; 0-1       bbID        always 'LK'
-; 2-5       bbEntry     BRA.W base+8
-; 6-7       bbVersion   interpreted as above
-; 8-13                  JSR .inPlaceFixRoutine
-; 14-137                junk
-
-
-.executable                                 ; Need to leave bytes 6,7 intact
-            move.l  #$60000004,2(A0)        ; BB+2: BRA.W BB+8
-            move.w  #$4EB9,8(A0)            ; BB+8: JSR .inPlaceFixRoutine (abs)
-            lea     .inPlaceFixRoutine,A1
-            move.l  A1,10(A0)
-
-            move.l  A0,A1                   ; Clear the icache with a BlockMove
-            move.l  #138,D0
-            dc.w    $A02E                   ; _BlockMove
-
-            rts
-
-.inPlaceFixRoutine                          ; The BB stub JSRs to here
-            move.l  (SP)+,A1                ; so the return address will be at BB+14
-            lea     -14(A1),A1              ; "Rewind" to the start of the BB
-            move.l  .gFullLoc,A0            ; And here are our full boot blocks
-            move.l  #1024,D0
-            dc.w    $A02E                   ; _BlockMove (needs to clear cache)
-
-            jmp     2(A1)                   ; Jump to the fixed-up BB
-
-.gFullLoc   dc.l    0                       ; Stuff addr of full-length BB in here
+CodeEnd
