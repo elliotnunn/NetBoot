@@ -126,7 +126,7 @@ GoHereFromReadTrap
     ; Open our driver
             lea     -$32(SP),SP
             move.l  SP,A0
-            bsr     clearblock
+            bsr     DrvrClearBlock
             lea     DrvrName,A1
             move.l  A1,$12(A0)                              ; IOFileName
             dc.w    $A000                                   ; _Open
@@ -148,7 +148,7 @@ GoHereFromReadTrap
     ; Open .MPP (still open?) & our DDP socket
             lea     -$32(SP),SP
             move.l  SP,A0
-            bsr     clearblock
+            bsr     DrvrClearBlock
             pea     MPPName
             move.l  (SP)+,$12(A0) ; ioNamePtr
             dc.w    $A000 ; _Open
@@ -164,12 +164,6 @@ GoHereFromReadTrap
             rts
 
 MPPName     dc.b    4, '.MPP', 0
-
-clearblock  move.w  #$32/2-1,D0
-.loop       clr.w   (A0)+
-            dbra    D0,.loop
-            lea     -$32(A0),A0
-            rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
