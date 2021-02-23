@@ -132,18 +132,10 @@ GoHereFromReadTrap
             dc.w    $A000                                   ; _Open
             lea     $32(SP),SP
 
-    ; Create & add a drive queue entry (DQE).
-            move.l  #$16,D0
-            dc.w    $A71E ; _NewPtrSysClear
-            add.l   #4,A0                                   ; has some cheeky flags at negative offset
-
-            move.l  #$00080000,-4(A0)                       ; secret flags, see http://mirror.informatimago.com/next/developer.apple.com/documentation/mac/Files/Files-112.html
-            move.w  #1,4(A0)                                ; qType
-            ;move.w  #0,$A(A0)                               ; dQFSID should be for a native fs
-            ;move.l  #0,$C(A0)                               ; dQDrvSz/dQDrvSz2 ; whoa, better fix this!
-
-            move.l  $16(A4),D0                              ; scoop drivenum & driver refnum from _Read PB
-            dc.w    $A04E                                   ; _AddDrive (A0=DQE, D0=drvnum/drefnum)
+    ; Add the a drive queue entry (DQE).
+            lea     dqLink-DrvrBase(A3),A0
+            move.l  $16(A4),D0
+            dc.w    $A04E ; _AddDrive (A0=DQE, D0=drvnum/drefnum)
 
     ; Open .MPP (still open?) & our DDP socket
             lea     -$32(SP),SP
@@ -181,7 +173,6 @@ DrvrBase
 DrvrName    dc.b    8, ".netBOOT", 0
 
 g
-gNumBlks    dc.l    0               ; the source of all truth
 gMyDCE      dc.l    0
 gExpectHdr  dc.l    0
 gProgress   dc.l    0
@@ -192,6 +183,16 @@ gMyPB       dcb.b   $32+2 ; allow us to clear it with move.l's
 gSaveAddr   dcb.b   16
 gAddr       dcb.b   16
             even
+
+; Drive queue element
+dqFlags     dc.l    $00080000
+dqLink      dc.l    0
+dqType      dc.w    1
+dqDrive     dc.w    0
+dqRefNum    dc.w    0
+dqFSID      dc.w    0
+dqDrvSz     dc.w    0
+dqDrvSz2    dc.w    0
 
 ; a0=iopb, a1=dce on entry to all of these...
 
@@ -590,10 +591,8 @@ DrvrStatus
             bra.s   status_unknown
 
 status_fmtLstCode ; tell them about our size
-            movem.l A2/A3,-(SP)
-
-            lea     gNumBlks,A3
-            move.l  (A3),D0
+            move.l  dqDrvSz,D0
+            swap    D0
             lsl.l   #5,D0               ; convert from blocks to bytes
             lsl.l   #4,D0
 
@@ -602,14 +601,12 @@ status_fmtLstCode ; tell them about our size
             move.l  D0,0(A2)
             move.l  #$40000000,4(A2)
 
-            movem.l (SP)+,A2/A3
-
             move.w  #0,$10(A0)          ; ioResult = noErr
             bra     DrvrFinish
 
 status_drvStsCode ; tell them about some of our flags
             move.w  #0,$1C(A0)          ; csParam[0..1] = track no (0)
-            move.l  #$00080000,$1C+2(A0) ; csParam[2..5] = same flags as dqe
+            move.l  dqFlags,$1C+2(A0)   ; csParam[2..5] = same flags as dqe
 
             move.w  #0,$10(A0)          ; ioResult = noErr
             bra     DrvrFinish
