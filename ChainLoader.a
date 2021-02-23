@@ -255,14 +255,7 @@ DrvrSendRead
             lea     gProgress,A2
             clr.l   (A2)
 
-            lea     gSaveAddr,A2
-            lea     gAddr,A3
-            move.b  (A2)+,(A3)+ ; copy the address struct, dang it!
-            move.l  (A2)+,(A3)+
-            move.l  (A2)+,(A3)+
-            move.l  (A2)+,(A3)+
-            move.w  (A2)+,(A3)+
-            move.b  (A2)+,(A3)+
+            bsr.s   DrvrCopyAddrStruct
 
             lea     gQuery,A2
             move.w  #$8000,(A2)+                    ; Means a polite request
@@ -306,6 +299,17 @@ DrvrSendRead
             rts
 
 
+DrvrCopyAddrStruct
+            movem.l A0-A1,-(SP)
+            lea     gSaveAddr,A0
+            lea     gAddr,A1
+            moveq.l #16,D0
+            dc.w    $A22E ; _BlockMoveData
+            movem.l (SP)+,A0-A1
+            rts
+
+
+
 DrvrDidSendRead
 ; Called as completion routine: PB/result in A0/D0, must preserve all registers other than A0/A1/D0-D2
 
@@ -343,14 +347,7 @@ DrvrSendWrite
             addq.w  #1,(A2)             ; packet filter sequence word
 .notFirstBlockOfChunk
 
-            lea     gSaveAddr,A2
-            lea     gAddr,A3
-            move.b  (A2)+,(A3)+ ; copy the address struct, dang it!
-            move.l  (A2)+,(A3)+
-            move.l  (A2)+,(A3)+
-            move.l  (A2)+,(A3)+
-            move.w  (A2)+,(A3)+
-            move.b  (A2)+,(A3)+
+            bsr.s   DrvrCopyAddrStruct
 
             lea     gQuery,A2
             move.b  #$82,(A2)+                      ; Means a polite request
