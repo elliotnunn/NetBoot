@@ -615,19 +615,12 @@ status_drvStsCode ; tell them about some of our flags
             bra     DrvrFinish
 
 status_unknown
-            move.w  $1A(A0),D0          ; dodgy, for debugging
-            add.w   #$3000,D0
-            dc.w    $A9C9
-
             move.w  #-18,$10(A0)        ; ioResult
             bra     DrvrFinish
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrClose
-            move.w  #$4444,D0
-            dc.w    $A9C9
-
             move.w  #0,$10(A0)      ; ioResult
             rts
 
