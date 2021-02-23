@@ -286,7 +286,7 @@ while 1:
                     # break # wait for another request, you mofo!
 
         elif boot_type == 128:
-            boot_seq, boot_blkoffset, boot_blkcnt = struct.unpack_from('>HLL', data); boot_imgname = b'A608.dsk'
+            boot_seq, boot_imgnum, boot_blkoffset, boot_blkcnt = struct.unpack_from('>HLLL', data); boot_imgname = b'A608.dsk'
             boot_blkcnt = min(boot_blkcnt, 32)
             boot_imgname = boot_imgname.decode('mac_roman')
             for blk in range(boot_blkoffset, boot_blkoffset + boot_blkcnt):
@@ -300,7 +300,7 @@ while 1:
                 (MCAST_ADDR, MCAST_PORT))
 
         elif boot_type == 130:
-            boot_type, blk, seq, hunk_start = struct.unpack_from('>BBHL', whole_data)
+            boot_type, blk, seq, boot_imgnum, hunk_start = struct.unpack_from('>BBHLL', whole_data)
             if seq != buf_sequence:
                 buf_sequence = seq
                 buf = bytearray(32*512)

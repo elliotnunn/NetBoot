@@ -173,6 +173,7 @@ DrvrBase
 DrvrName    dc.b    8, ".netBOOT", 0
 
 g
+gImage      dc.l    0               ; "configuration mode" by default
 gMyDCE      dc.l    0
 gExpectHdr  dc.l    0
 gProgress   dc.l    0
@@ -243,6 +244,7 @@ DrvrSendRead
             lea     gQuery,A2
             move.w  #$8000,(A2)+                    ; Means a polite request
             move.w  gExpectHdr+2,(A2)+
+            move.l  gImage,(A2)+
 
             move.l  $28(A0),D0                      ; [ioActCount (in bytes)
             lsr.l   #4,D0
@@ -260,7 +262,7 @@ DrvrSendRead
             clr.w   (A2)+                           ; WDS+0: reserved field
             pea     gAddr
             move.l  (SP)+,(A2)+                     ; WDS+2: pointer to address struct
-            move.w  #12,(A2)+                       ; WDS: push pointer/length
+            move.w  #16,(A2)+                       ; WDS: push pointer/length
             pea     gQuery
             move.l  (SP)+,(A2)+
             clr.w   (A2)+                           ; WDS: end with zero
@@ -333,6 +335,7 @@ DrvrSendWrite
             move.b  #$82,(A2)+                      ; Means a polite request
             move.b  D1,(A2)+                        ; nth block of this chunk follows
             move.w  gExpectHdr+2,(A2)+
+            move.l  gImage,(A2)+
             move.l  D0,(A2)+                        ; first block of this chunk
 
             lea     gWDS,A2
@@ -340,7 +343,7 @@ DrvrSendWrite
             pea     gAddr
             move.l  (SP)+,(A2)+                     ; WDS+2: pointer to address struct
 
-            move.w  #8,(A2)+                        ; WDS: push length/ptr of header
+            move.w  #12,(A2)+                       ; WDS: push length/ptr of header
             pea     gQuery
             move.l  (SP)+,(A2)+
 
