@@ -230,17 +230,7 @@ DrvrPrime
             bne     DrvrSendWrite           ; transition from "Idle" to "Await Comp Send Write Packet"
             bra     DrvrSendRead            ; transition from "Idle" to "Await Comp Send Read Packet"
 
-
-
-
-
-; Some wrappers for the routines below...
-
-
-
-
-
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrSendRead
 ; Called from Prime routine or socket listener: PB/DCE in A0/A1 must be preserved (but we only require A0)
@@ -293,7 +283,6 @@ DrvrSendRead
 
             rts
 
-
 DrvrCopyAddrStruct
             movem.l A0-A1,-(SP)
             lea     gSaveAddr,A0
@@ -303,16 +292,14 @@ DrvrCopyAddrStruct
             movem.l (SP)+,A0-A1
             rts
 
-
-
 DrvrDidSendRead
 ; Called as completion routine: PB/result in A0/D0, must preserve all registers other than A0/A1/D0-D2
-
             lea     gExpectHdr,A2
             move.w  #$8100,(A2)                     ; Enable packet reception
 
             rts ; TODO: set up a timeout/retry task
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrSendWrite
 ; Called from Prime routine or socket listener: PB/DCE in A0/A1 must be preserved (but we only require A0)
@@ -382,7 +369,6 @@ DrvrSendWrite
 
             rts
 
-
 DrvrDidSendWrite ; completion routine for the above control call..
             ; need to test whether to send another, or switch to wait mode...
 
@@ -402,20 +388,14 @@ DrvrDidSendWrite ; completion routine for the above control call..
 .sentAllOfChunk
             rts ; TODO: set up a timeout/retry task
 
-
-
-
-
-
-
-
-
 DrvrClearBlock
             move.w  #$32/2-1,D0
 .loop       clr.w   (A0)+
             dbra    D0,.loop
             lea     -$32(A0),A0
             rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrSockListener
 ; Registers on call to DDP socket listener:
@@ -527,7 +507,6 @@ DrvrDidReceiveRead
 
             rts                         ; Just return to await more packets.
 
-
 DrvrDidReceiveWrite
             moveq.l #0,D3
             jsr     2(A4)               ; ReadRest (D3=0 i.e. discard)
@@ -541,11 +520,6 @@ DrvrDidReceiveWrite
 
             bra.s   DrvrIODone
 
-
-
-
-
-
 DrvrIODone
             lea     gExpectHdr,A1       ; Disable this socket listener
             clr.w   (A1)
@@ -554,8 +528,6 @@ DrvrIODone
             moveq.l #0,D0
             move.l  $8FC,A0             ; jIODone (D0 = result, A1 = DCE)
             jmp     (A0)
-
-
 
 DrvrTrashPacket
             moveq.l #0,D3
