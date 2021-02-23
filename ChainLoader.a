@@ -199,10 +199,8 @@ dqDrvSz2    dc.w    0
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 DrvrOpen
-            move.l  A0,-(SP)
-            lea     gMyDCE,A0       ; dodgy, need this for IODone
-            move.l  A1,(A0)
-            move.l  (SP)+,A0
+            lea     gMyDCE,A2       ; dodgy, need this for IODone
+            move.l  A1,(A2)
 
             move.w  #0,$10(A0)      ; ioResult
             rts
