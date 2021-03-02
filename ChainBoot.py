@@ -34,11 +34,12 @@ for img2name in image2:
     image2dict[img2name] = bytearray(img2)
 
     img2name = img2name.encode('mac_roman')
-    image += struct.pack('>LB', len(img2)//512, len(img2name)) + img2name
+#     image += struct.pack('>LB', len(img2)//512, len(img2name)) + img2name
     while len(image) % 2: image += b'\0'
 
 image += bytes(5)
-image += b'Elliot'*10000 # padding, too much!
+while len(image) < 8 * 512: image += b'?'
+# image += b'Elliot'*10000 # padding, too much!
 image = append_snefru(image)
 
 writable_image = bytearray(open('A608.dsk', 'rb').read())

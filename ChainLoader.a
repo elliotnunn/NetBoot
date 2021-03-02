@@ -732,3 +732,5 @@ gUserRec ; append user record here later on, no need to waste space on zeros
 
 DrvrEnd
 CodeEnd
+
+            align   12 ; work around unfortunate .ATBOOT bug
