@@ -1,4 +1,6 @@
 kUserRecLen equ 568
+kInitialWaitMsec    equ 10000
+kSubsequentWaitMsec equ 1000
 
 Code
 
@@ -185,6 +187,12 @@ gSaveAddr   dcb.b   16
 gAddr       dcb.b   16
             even
 
+; Time Manager task
+tmLink      dc.l    0
+tmType      dc.w    0
+tmAddr      dc.l    0
+tmCount     dc.l    0
+
 ; Drive queue element
 dqFlags     dc.l    $00080000
 dqLink      dc.l    0
@@ -231,8 +239,20 @@ DrvrPrime
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+DrvrReSendRead
+; Time Manager task
+            lea     tmLink,A0
+            dc.w    $A059 ; _RmvTime
+
+            move.l  gMyDCE,A1                       ; get Device Mgr registers
+            move.l  6+2(A1),A0
+
+            ; truncate ioActCount
+            and.l   #-32*512,$28(A0)                ; truncate ioActCount
+
 DrvrSendRead
-; Called from Prime routine or socket listener: PB/DCE in A0/A1 must be preserved (but we only require A0)
+; Called from Prime routine, socket listener or Time Manager:
+; PB/DCE in A0/A1 must be preserved (but we only require A0)
             lea     gExpectHdr,A2
             clr.w   (A2)+
             addq.w  #1,(A2)             ; packet filter sequence word
@@ -294,15 +314,38 @@ DrvrCopyAddrStruct
 
 DrvrDidSendRead
 ; Called as completion routine: PB/result in A0/D0, must preserve all registers other than A0/A1/D0-D2
-            lea     gExpectHdr,A2
-            move.w  #$8100,(A2)                     ; Enable packet reception
+            lea     gExpectHdr,A0
+            move.w  #$8100,(A0)                     ; Enable packet reception
+            move.l  #kInitialWaitMsec,D0
 
-            rts ; TODO: set up a timeout/retry task
+DrvrInstallReSendRead
+; Called from anywhere, D0=waittime, can clobber anything
+            lea     tmLink,A0
+            pea     DrvrReSendRead
+            move.l  (SP)+,tmAddr-tmLink(A0)
+            move.l  D0,-(SP)
+            dc.w    $A058 ; _InsTime
+            move.l  (SP)+,D0
+            dc.w    $A05A ; _PrimeTime
+            rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+DrvrReSendWrite
+; Time Manager task
+            lea     tmLink,A0
+            dc.w    $A059 ; _RmvTime
+
+            move.l  gMyDCE,A1                       ; get Device Mgr registers
+            move.l  6+2(A1),A0
+
+            ; truncate ioActCount
+            sub.l   #512,$28(A0)
+            and.l   #-32*512,$28(A0)                ; truncate ioActCount
+
 DrvrSendWrite
-; Called from Prime routine or socket listener: PB/DCE in A0/A1 must be preserved (but we only require A0)
+; Called from Prime routine, socket listener or Time Manager:
+; PB/DCE in A0/A1 must be preserved (but we only require A0)
 
 ; D1 = block index within chunk
             move.l  $28(A0),D1
@@ -329,7 +372,7 @@ DrvrSendWrite
             addq.w  #1,(A2)             ; packet filter sequence word
 .notFirstBlockOfChunk
 
-            bsr.s   DrvrCopyAddrStruct
+            bsr     DrvrCopyAddrStruct
 
             lea     gQuery,A2
             move.b  #$82,(A2)+                      ; Means a polite request
@@ -381,13 +424,19 @@ DrvrDidSendWrite ; completion routine for the above control call..
             move.l  D1,$28(A0)
 
             cmp.l   D0,D1
-            beq.s   .sentAllOfChunk
+            beq.s   DrvrInstallReSendWrite
             and.l   #(32-1)*512,D0
-            beq.s   .sentAllOfChunk
+            beq.s   DrvrInstallReSendWrite
             bra     DrvrSendWrite
 
-.sentAllOfChunk
-            rts ; TODO: set up a timeout/retry task
+DrvrInstallReSendWrite
+            lea     tmLink,A0
+            pea     DrvrReSendWrite
+            move.l  (SP)+,tmAddr-tmLink(A0)
+            dc.w    $A058 ; _InsTime
+            move.l  #kInitialWaitMsec,D0
+            dc.w    $A05A ; _PrimeTime
+            rts
 
 DrvrClearBlock
             move.w  #$32/2-1,D0
@@ -463,6 +512,11 @@ DrvrSockListener
             clr.b   D3
             bne     DrvrTrashPacket
 
+            movem.l A0-A1/D0-D2,-(SP)
+            lea     tmLink,A0
+            dc.w    $A059 ; _RmvTime
+            movem.l (SP)+,A0-A1/D0-D2
+
             btst    #25,D2
             bne.s   DrvrDidReceiveWrite
 
@@ -506,7 +560,8 @@ DrvrDidReceiveRead
             addq.l  #1,D1               ; If bitmap=$FFFFFFFF then get the next chunk of 32
             beq     DrvrSendRead        ; A0 must be the PB
 
-            rts                         ; Just return to await more packets.
+            move.l  #kSubsequentWaitMsec,D0
+            bra     DrvrInstallReSendRead ; Just return to await more packets.
 
 DrvrDidReceiveWrite
             moveq.l #0,D3

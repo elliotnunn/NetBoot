@@ -10,11 +10,16 @@ import struct
 import sys
 
 import time
+import random
 
 from snefru_hash import append_snefru
 
 
 
+
+UNRELIABILITY_PERCENT = 1
+def failchance():
+    return (random.random() < UNRELIABILITY_PERCENT/100)
 
 my_unique_ltoudp_id = b'El' + (os.getpid() & 0xFFFF).to_bytes(2, 'big')
 
@@ -82,6 +87,11 @@ def mk_ddp(dest_node, dest_socket, src_node, src_socket, proto_type, data):
     data = my_unique_ltoudp_id + data
 
     return data
+
+def send(ddp):
+    if failchance(): return
+    sock.sendto(ddp, (MCAST_ADDR, MCAST_PORT))
+
 
 
 
@@ -164,7 +174,7 @@ while 1:
             # NBP LkUp
 
             if len(nbp_tuples) == 1 and nbp_tuples[0][5] == 'BootServer': # Looking for us
-                sock.sendto(mk_ddp(
+                send(mk_ddp(
                     dest_node=llap_src_node, dest_socket=ddp_src_socket,
                     src_node=99, src_socket=99,
                     proto_type=2,
@@ -176,8 +186,7 @@ while 1:
                         0,                  # (My) Enumerator (i.e. which of many possible names for 99/99 is this?)
                     ) +
                     pstring(nbp_tuples[0][4]) + pstring('BootServer') + pstring('*')
-                ),
-                (MCAST_ADDR, MCAST_PORT))
+                ))
 
     elif ddp_proto_type == 10:
         # Mysterious ATBOOT protocol
@@ -234,13 +243,12 @@ while 1:
             # }BootPktRply;
 
             # Ignore the silly user record. Just make the fucker work!
-            sock.sendto(mk_ddp(
+            send(mk_ddp(
                 dest_node=llap_src_node, dest_socket=ddp_src_socket,
                 src_node=99, src_socket=99,
                 proto_type=10,
                 data=struct.pack('>BBHLHHhL', 2, 1, boot_machine_id, boot_timestamp, 512, 0, 0, len(image) // 512).ljust(586, b'\0')
-            ),
-            (MCAST_ADDR, MCAST_PORT))
+            ))
 
         elif boot_type == 3:
             # It seems to want part of the boot image!
@@ -274,13 +282,12 @@ while 1:
                     #     } BootBlock,*BootBlockPtr;
 
                     # print(f' {blocknum}', end='', flush=True)
-                    sock.sendto(mk_ddp(
+                    send(mk_ddp(
                         dest_node=llap_src_node, dest_socket=ddp_src_socket,
                         src_node=99, src_socket=99,
                         proto_type=10,
                         data=struct.pack('>BBHH', 4, 1, boot_image_id, blocknum) + image[blocknum*512:blocknum*512+512]
-                    ),
-                    (MCAST_ADDR, MCAST_PORT))
+                    ))
 
                     # time.sleep(0.5)
                     # break # wait for another request, you mofo!
@@ -291,13 +298,12 @@ while 1:
             boot_imgname = boot_imgname.decode('mac_roman')
             for blk in range(boot_blkoffset, boot_blkoffset + boot_blkcnt):
                 thisblk = writable_image[blk*512:blk*512+512]
-                sock.sendto(mk_ddp(
+                send(mk_ddp(
                     dest_node=llap_src_node, dest_socket=ddp_src_socket,
                     src_node=99, src_socket=99,
                     proto_type=10,
                     data=struct.pack('>BBH', 129, blk-boot_blkoffset, boot_seq) + thisblk
-                ),
-                (MCAST_ADDR, MCAST_PORT))
+                ))
 
         elif boot_type == 130:
             boot_type, blk, seq, boot_imgnum, hunk_start = struct.unpack_from('>BBHLL', whole_data)
@@ -312,13 +318,12 @@ while 1:
                 del buf[(blk % 32) * 512 + 512:]
                 writable_image[hunk_start*512:hunk_start*512+len(buf)] = buf
 
-                sock.sendto(mk_ddp(
+                send(mk_ddp(
                     dest_node=llap_src_node, dest_socket=ddp_src_socket,
                     src_node=99, src_socket=99,
                     proto_type=10,
                     data=struct.pack('>BBH', 131, 0, seq)
-                ),
-                (MCAST_ADDR, MCAST_PORT))
+                ))
 
         else:
             print(f'ATBOOT type={boot_type} vers={boot_vers} contents={repr(data)}')
