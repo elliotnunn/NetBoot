@@ -56,8 +56,8 @@ ResumeAfterCopy
 ; We do this by scanning the stack for the return address of the original _Read.
             move.l  $2AE,A0                 ; A0 = ROMBase (lower limit)
             lea     $4000(A0),A1            ; A1 = ROMBase + a bit (upper limit)
-            lea     -2(SP),A2
-.loop       subq.l  #2,A2                   ; A2 = where we search the stack
+            move.l  SP,A2
+.loop       addq.l  #2,A2                   ; A2 = where we search the stack
             move.l  (A2),A3                 ; A3 = potential return address
             cmp.l   A0,A3                   ; lower limit check
             bls.s   .loop
