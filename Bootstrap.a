@@ -28,6 +28,8 @@ SystemHeapSize          dc.l    $20000      ; size of system heap (used for pre-
 
 Code
 
+            bsr     BareBonesDebugStr
+
 
 
             lea     bootVars,a0
@@ -41,6 +43,14 @@ pramLoop
             add.w   d2,a0                   ; and add it to bootVars
             bra.s   pramLoop
 pramDone
+
+
+            pea     MyString
+            dc.w    $ABFF ; _DebugStr
+            move.l  $16A,D0 ; Ticks
+            add.l   #60,D0
+.loop       cmp.l   $16A,D0
+            bhi.s   .loop
 
 
 
@@ -94,6 +104,11 @@ pRamTable
             dc.l    $00200020
             dc.l    $0020008B
             dc.l    $00000000
+
+
+MyString    dc.b    43, 'Network boot enabled in PRAM. Restarting...'
+BareBonesDebugStr
+            include 'BareBonesDebugStr.a'
 
 
             align   10 ; fill up the boot blocks
