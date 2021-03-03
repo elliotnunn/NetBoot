@@ -17,7 +17,7 @@ from snefru_hash import append_snefru
 
 
 
-UNRELIABILITY_PERCENT = 1
+UNRELIABILITY_PERCENT = 0
 def failchance():
     return (random.random() < UNRELIABILITY_PERCENT/100)
 
