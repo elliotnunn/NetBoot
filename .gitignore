@@ -17,3 +17,7 @@ payload
 
 packbits
 *.pb
+
+ServerDA
+ServerDA.idump
+ServerDA.rdump

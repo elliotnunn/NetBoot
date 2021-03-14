@@ -82,4 +82,22 @@ testchain: ChainLoader.bin FORCE
 
 
 
+ServerDA.bin: ServerDA.a
+	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
+
+ServerDA ServerDA.idump ServerDA.rdump: ServerDA.bin
+	touch ServerDA ServerDA.idump
+	/bin/echo -n dfilmovr >ServerDA.idump
+	echo data "'DRVR'" '(12, "", purgeable) {};' >ServerDA.rdump
+	rfx cp ServerDA.bin ServerDA.rdump//DRVR/12
+
+testda: FORCE ServerDA ServerDA.idump ServerDA.rdump
+	rm -rf /tmp/testda; mkdir -p /tmp/testda/Desktop\ Folder; cp ServerDA ServerDA.idump ServerDA.rdump /tmp/testda/Desktop\ Folder/
+	MakeHFS -s 400k -n TestDA -d now -i /tmp/testda /tmp/testda.dsk
+	rsync Big.dsk /tmp/Big.dsk
+	Mini\ vMac\ Classic.app/Co*/Ma*/* /tmp/Big.dsk /tmp/testda.dsk
+
+
+
+
 FORCE:
