@@ -18,10 +18,10 @@
 **************************** DESK ACCESSORY ENTRY **************************
 
 DAEntry 										; See Device Manager IM:2
-	DC.B	$24 ; (1<<dCtlEnable) + (1<<dNeedTime)	; periodic,control flags set
+	DC.B	$04                             	; dCtlEnable only
 	DC.B	0									; Lower byte is unused
 	DC.W	5*60								; 5 sec periodic update
-	DC.W	$40 ; (1<<updateEvt)						; Handle only update events
+	DC.W	$42			                    	; mouseDown updateEvt
 	DC.W	0									; No menu for this accessory
 
 	DC.W	DAOpen-DAEntry						; Open routine
@@ -31,7 +31,7 @@ DAEntry 										; See Device Manager IM:2
 	DC.W	DAClose-DAEntry 					; Close
 
 DATitle
-	DC.B	17, 'Free Mem (#Bytes)' 				; DA Name (& Window Title)
+	DC.B	15, 'NetBoot Server', 0, 0 				; DA Name (& Window Title)
 	ALIGN	2									; Word align
 
 
@@ -56,7 +56,7 @@ DAOpen
 	PEA 		theWindow						; boundsRect
 	PEA 		DATitle 						; title
 	CLR.W		-(SP)							; visible flag FALSE
-	MOVE.W		#16,-(SP)			; window proc = rDocProc, 16px rounding
+	MOVE.W		#16,-(SP)			            ; window proc = rDocProc, 16px rounding
 	MOVE.L		#-1,-(SP)						; window in front
 	MOVE.B		#1,-(SP)						; goAway box TRUE
 	CLR.L		-(SP)							; refCon is 0
@@ -64,7 +64,24 @@ DAOpen
 	MOVE.L		(SP)+,A0
 	MOVE.L		A0,$1E(A4)				; DCtlEntry.DCtlWindow save windowPtr
 	MOVE.W		$18(A4),$6C(A0)	; DCtlEntry.DCtlRefNum system window
- 	DC.W		$A11D ; __MaxMem
+
+    if 1
+    ; now we need to add a control...
+    subq        #4,SP       ; space for result
+    move.l      A0,-(SP)    ; theWindow
+    pea         thePlusBtn  ; boundsRect
+    pea         plusBtnTitle; title
+    st          -(SP)       ; visible
+    clr.w       -(SP)       ; value
+    clr.w       -(SP)       ; min
+    clr.w       -(SP)       ; max
+    clr.w       -(SP)       ; procID = push button
+    move.l      #-1,-(SP)   ; refCon
+    dc.w        $A954       ; _NewControl
+    addq        #4,SP
+    endif
+
+
 
 StdReturn
  	DC.W		$A873 ; __SetPort									; old port on stack
@@ -91,7 +108,7 @@ DAClose
 	MOVE.L		$1E(A4),-(SP)	; DCtlEntry.DCtlWindow push the window
  	DC.W		$A914 ; __DisposeWindow								; dispose of the window
 
-	CLR.L		$1E(A4)		; DCtlEntry.DCtlWindow mark DCE properly
+	CLR.L		2(A3)		; DCtlEntry.DCtlWindow mark DCE properly
 	BRA.S		StdReturn						; all done with close, exit
 
 
@@ -118,8 +135,10 @@ CtlDone
 
 DoCtlEvent
 	MOVE.L		A3,-(SP)						; save reg
-	MOVE.L		$1C(A0),A3		; CntrlParam.CSParamget the event pointer
-	MOVE.W		0(A3),D0			; EventRecord.what get the event number
+	MOVE.L		$1C(A0),A3		                ; CntrlParam.CSParam = event pointer
+	MOVE.W		0(A3),D0			            ; EventRecord.what
+    CMP.W       #1,D0
+    BEQ.S       CtlEvtMouse
 	SUBQ		#6,D0					; updateEvt is it an update?
 	BNE.S		CtlEvtDone						; If not, exit
 
@@ -137,6 +156,44 @@ CtlEvtDone
 	MOVE.L		(SP)+,A3						; restore reg
 	BRA.S		CtlDone 						; exit
 
+CtlEvtMouse
+    subq        #4,SP           ; Save the GrafPort (good manners)
+    move.l      SP,-(SP)
+    dc.w        $A874           ; _GetPort to the stack space we made
+    move.l      $1E(A4),-(SP)   ; dCtlWindow
+    DC.W		$A873           ; _SetPort
+
+    move.l      10(A3),-(SP); Get D4 as the point in our coords
+    move.l      SP,-(SP)
+    dc.w        $A871           ;  _GlobalToLocal
+    move.l      (SP)+,D4
+
+                            ; _FindControl to hit-test
+    subq        #4,SP           ; room for the control handle
+    subq        #2,SP           ; return value (control ID)
+    move.l      D4,-(SP)        ; thePoint = our converted point
+    move.l      $1E(A4),-(SP)   ; theWindow = dCtlWindow
+    pea         10(SP)          ; whichControl = pointer to where to dump handle
+    dc.w        $A96C           ; _FindControl
+    addq        #2,SP           ; don't care about ID
+    move.l      (SP)+,D3        ; pop control handle
+    beq.s       .noControlClicked
+
+                            ; _TrackControl to hilite while mouse down
+    subq        #2,SP           ; room for result integer
+    move.l      D3,-(SP)        ; theControl = control handle
+    move.l      D4,-(SP)        ; startPt = our converted point
+    clr.l       -(SP)           ; actionProc = 0
+    dc.w        $A968           ; _TrackControl
+    move.w      (SP)+,D0
+    beq.s       .noControlClicked
+
+    dc.w        $A9FF ; a button got clicked! its handle is in D3
+
+.noControlClicked
+    DC.W		$A873           ; _SetPort to restore the GrafPort
+
+    BRA.S       CtlEvtDone
 
 **************************** PERIODIC ROUTINE *****************************
 
@@ -155,6 +212,9 @@ DrawWindow
     move.l      #$00500050,D0
     bsr         Poof
     movem.l     (SP)+,A0-A5/D0-D7
+
+    move.l      2(A3),-(SP)
+    dc.w        $A969 ; _DrawControls
 
 Exit
 	RTS
@@ -188,7 +248,9 @@ s3  dc.b		8, '  Disk: ', 0
 s4  dc.b		9, ' free on '
 
 
-theWindow	DC.W	322,10,338,500			; window top,left,bottom,right
+theWindow	DC.W	44,5,64,155			; window top,left,bottom,right
+thePlusBtn	DC.W	2,20,16,90			; window top,left,bottom,right
+plusBtnTitle    dc.b    8, 'Add Disk', 0
 
 ; Desk accessories (drivers) cannot use global variables in the normal sense.
 ; Usually, a handle is allocated and stuffed into dCtlStorage and global
