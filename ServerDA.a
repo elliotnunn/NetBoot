@@ -121,7 +121,7 @@ DACtl
 	SUB.W		#64,D0					; = 64? (event)
 	BEQ.S		DoCtlEvent
 	SUB.W		#1,D0							; = 65? (periodic)
-	BEQ.S		DoPeriodic
+	BEQ 		DoPeriodic
 
 CtlDone
 	MOVE.L		A4,A1							; put DCE ptr back in A1
@@ -188,7 +188,11 @@ CtlEvtMouse
     move.w      (SP)+,D0
     beq.s       .noControlClicked
 
-    dc.w        $A9FF ; a button got clicked! its handle is in D3
+;    dc.w        $A9FF ; a button got clicked! its handle is in D3
+    movem.l     A0-A5/D0-D7,-(SP)
+    move.l      #$00500050,D0
+    bsr         Poof
+    movem.l     (SP)+,A0-A5/D0-D7
 
 .noControlClicked
     DC.W		$A873           ; _SetPort to restore the GrafPort
@@ -202,17 +206,12 @@ DoPeriodic
  	DC.W		$A873 ; __SetPort
 
 	BSR.S		DrawWindow						; draw our window every 5s
-	BRA.S		CtlDone
+	BRA 		CtlDone
 
 
 ****************************** FONT METRICS *******************************
 
 DrawWindow
-    movem.l     A0-A5/D0-D7,-(SP)
-    move.l      #$00500050,D0
-    bsr         Poof
-    movem.l     (SP)+,A0-A5/D0-D7
-
     move.l      2(A3),-(SP)
     dc.w        $A969 ; _DrawControls
 
