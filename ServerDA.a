@@ -205,8 +205,11 @@ aNumStr 	DCB.B	10						; sufficient for 10 GB of space
 
 
 
-Poof ; animation, takes D0
+Poof ; animation, takes D0, ONLY WORKS WITH BASIC QD!
             link    A6,#-0
+
+            cmp.w   #$3fff,$28E         ; non-color qd ONLY! (so far)
+            ble     .return
 
             move.l  D0,-(SP)            ; D3 = screen rect
             add.l   #$00200020,(SP)
@@ -243,17 +246,20 @@ Poof ; animation, takes D0
             dc.w    $A8EC               ; _CopyBits
 
 
-; this is where the loop will start (very cutesy)
-
-            clr.l   D7 ; loop counter!
+            clr.l   D7                  ; animation loop counter
+            move.l  $16A,A2             ; and tick counter
 .loop
+            cmp.l   #(PoofDataEnd-PoofData)/256+1,D7 ; drawn all frames and cleaned up?
+            beq.s   .return
 
-            tst.l   D7
+            tst.l   D7                  ; delay -- but not before the first frame
             beq.s   .dontwait
+            addq.l  #3,A2
+.waitloop   cmp.l   $16A,A2
+            bhi.s   .waitloop
 .dontwait
 
-
-
+                                    ; Copy the background to the scratch buffer
             move.l  D5,-(SP)            ; srcBits = "save screen" bitmap
             move.l  D6,-(SP)            ; dstBits = "scratch" bitmap
             move.l  D4,-(SP)            ; srcRect = bitmap rect
@@ -262,10 +268,16 @@ Poof ; animation, takes D0
             clr.l   -(SP)               ; no maskRgn
             dc.w    $A8EC               ; _CopyBits
 
+            cmp.l   #5,D7
+            beq.s   .erasePoof
+
+            lsl.l   #7,D7
             lea     PoofData,A0
             add.l   #(PoofDataEnd-PoofData)/2,A0
+            add.l   D7,A0
             move.l  A0,(A3)
 
+                                    ; Apply the mask
             move.l  A3,-(SP)            ; srcBits = "artwork" bitmap
             move.l  D6,-(SP)            ; dstBits = "scratch" bitmap
             move.l  D4,-(SP)            ; srcRect = bitmap rect
@@ -275,8 +287,11 @@ Poof ; animation, takes D0
             dc.w    $A8EC               ; _CopyBits
 
             lea     PoofData,A0
+            add.l   D7,A0
             move.l  A0,(A3)
+            lsr.l   #7,D7
 
+                                    ; Apply the image itself
             move.l  A3,-(SP)            ; srcBits = "artwork" bitmap
             move.l  D6,-(SP)            ; dstBits = "scratch" bitmap
             move.l  D4,-(SP)            ; srcRect = bitmap rect
@@ -285,6 +300,7 @@ Poof ; animation, takes D0
             clr.l   -(SP)               ; no maskRgn
             dc.w    $A8EC               ; _CopyBits
 
+.erasePoof                          ; Draw the scratch buffer to the screen
             move.l  D6,-(SP)            ; srcBits = "scratch" bitmap
             move.l  A4,-(SP)            ; dstBits = screenBits
             move.l  D4,-(SP)            ; srcRect = bitmap rect
@@ -293,6 +309,9 @@ Poof ; animation, takes D0
             clr.l   -(SP)               ; no maskRgn
             dc.w    $A8EC               ; _CopyBits
 
+            addq.l  #1,D7
+            bra.s   .loop
+.return
             unlk    A6
             rts
 
@@ -307,7 +326,7 @@ PushBitmapToStack ; assumes 32x32, leaves bitmap structure on stack
             jmp     (A0)                    ; return
 
 
-PoofData
+PoofData ; icons followed by masks
             dc.l    %00000000000000000000000000000000
             dc.l    %00000000000000000000000000000000
             dc.l    %00000000000000001111100000000000
