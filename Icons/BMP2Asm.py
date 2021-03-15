@@ -10,20 +10,29 @@ args = args.parse_args()
 
 bmp = open(args.bmp, 'rb').read()
 
-sig, fsize, pixoffset = struct.unpack_from('<HLxxxxL', bmp)
+sig, fsize, pixoffset, w, h = struct.unpack_from('<HLxxxxLxxxxLl', bmp)
+h = abs(h)
 
-pixels = [0] * 32 * 32
-mask = [0] * 32 * 32
+if w != 32: sys.exit('width must be 32')
 
-for i in range(32*32):
-    px, = struct.unpack_from('<L', bmp, pixoffset+i*4)
-    white = int((px & 0x00FFFFFF) == 0x00FFFFFF)
-    clear = int((px & 0xFF000000) == 00)
+pixels = []
+mask = []
 
-    pixels[i] = int(0 if clear else not white)
-    mask[i] = int(not clear)
+for row in range(h):
+    row_pix = ''
+    row_mask = ''
 
-as_str = ''.join(str(x) for x in (pixels + mask))
+    for col in range(w):
+        px, = struct.unpack_from('<L', bmp, pixoffset + row*w*4 + col*4)
 
-for i in range(0, 32*32*2, 32):
-    print('            dc.l    %' + as_str[i:i+32])
+        white = bool(px & 0x00FFFFFF)
+        opaque = bool(px & 0xFF000000)
+
+        row_pix += str(int(opaque and not white))
+        row_mask += str(int(opaque))
+
+    pixels.append(row_pix)
+    mask.append(row_mask)
+
+for i in pixels+mask:
+    print('            dc.l    %' + i)
