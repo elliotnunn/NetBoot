@@ -7,6 +7,14 @@
 ****
 ***************************************************************************
 
+; "File entry" list (stored as a handle in dCtlStorage)
+feQLink     equ 0   ; long
+feQType     equ 4   ; word
+feRefNum    equ 6   ; word
+feConnCnt   equ 8   ; byte
+fePermssn   equ 9   ; byte
+feFileName  equ 10  ; variable length pascal string
+
 ; Desk accessories (drivers) cannot use global variables in the normal sense.
 ; Usually, a handle is allocated and stuffed into dCtlStorage and global
 ; variables are stored in this handle.  However, in this example, the globals
@@ -31,8 +39,16 @@ DAEntry 										; See Device Manager IM:2
 	DC.W	DAClose-DAEntry 					; Close
 
 DATitle
-	DC.B	15, 'NetBoot Server', 0, 0 				; DA Name (& Window Title)
-	ALIGN	2									; Word align
+	DC.B	15, 'NetBoot Server', 0				; DA Name (& Window Title)
+	dc.b    0, 0, 0x20, 1                       ; traditional version
+
+gBackendRefnum
+	dc.w    0
+gBackendQHdr
+    dc.l    0
+
+HackQueueHeader
+    dcb.b   10 ; our queue header for now...
 
 
 ************************ DESK ACCESSORY OPEN ROUTINE ***********************
@@ -40,6 +56,11 @@ DATitle
 DAOpen
 	MOVEM.L 	A1-A4,-(SP) 					; preserve A1-A4
 	MOVE.L		A1,A4							; MOVE DCE pointer to a reg
+
+; Create a fake queue to use until the backend driver is written
+    lea         gBackendQHdr,A0
+    lea         HackQueueHeader,A1
+    move.l      A1,(A0)
 
 	SUBQ.L		#4,SP							; FUNCTION = GrafPtr
 	MOVE.L		SP,-(SP)						; push a pointer to it
@@ -59,7 +80,7 @@ DAOpen
 	MOVE.W		#16,-(SP)			            ; window proc = rDocProc, 16px rounding
 	MOVE.L		#-1,-(SP)						; window in front
 	MOVE.B		#1,-(SP)						; goAway box TRUE
-	CLR.L		-(SP)							; refCon is 0
+	MOVE.l      #-1,-(SP)                       ; refCon = -1 (special)
  	DC.W		$A913 ; __NewWindow
 	MOVE.L		(SP)+,A0
 	MOVE.L		A0,$1E(A4)				; DCtlEntry.DCtlWindow save windowPtr
@@ -147,7 +168,7 @@ DoCtlEvent
 
 	MOVE.L		2(A3),-(SP)	; EventRecord.message push windowPtr again
  	DC.W		$A873 ; __SetPort
-	BSR.S		DrawWindow						; draw our items
+	BSR 		DrawWindow						; draw our items
 
 	MOVE.L		2(A3),-(SP)	; EventRecord.message one more time
  	DC.W		$A923 ; __EndUpdate									; end of update
@@ -188,16 +209,48 @@ CtlEvtMouse
     move.w      (SP)+,D0
     beq.s       .noControlClicked
 
-;    dc.w        $A9FF ; a button got clicked! its handle is in D3
-    movem.l     A0-A5/D0-D7,-(SP)
-    move.l      #$00500050,D0
-    bsr         Poof
-    movem.l     (SP)+,A0-A5/D0-D7
+    link        A6,#0
+    bsr         GetFile
+    tst.b       (SP)
+    beq.s       .cancelOpen
+
+    sub         #50,SP          ; push IOPB for Open
+    lea         50+10(SP),A0    ; SFReply.fName...
+    move.l      A0,18(SP)       ;              ...IONamePtr
+    move.w      50+6(SP),22(SP) ; SFReply.vRefNum...IOVRefNum
+    clr.b       17(SP)          ; IOPermssn
+    move.l      SP,A0
+    dc.w        $A000 ; _Open
+    tst.w       16(SP)
+    bne.s       .cancelOpen     ; maybe we should complain louder?
+
+    ; Create and fill a new queue entry
+    clr.l       D0
+    move.b      50+10(SP),D0
+    add.l       #feFileName+1,D0
+    dc.w        $A71E           ; _NewPtrSysClear
+    move.l      A0,D0
+    beq.s       .cancelOpen
+    move.w      24(SP),feRefNum(A0) ; IORefNum...feRefNum
+    move.b      17(SP),fePermssn(A0) ; IOPermssn...fePermssn
+    moveq.l     #1,D0
+    add.b       50+10(SP),D0
+    lea         feFileName(A0),A1
+    lea         50+10(SP),A0
+    dc.w        $A22E           ; _BlockMoveData the name
+    lea         -feFileName(A1),A0 ; hack to get our register back
+
+    ; And append it to the interrupt-time-accessible queue
+    move.l      gBackendQHdr,A1
+    dc.w        $A96F           ; _Enqueue
+
+.cancelOpen
+    unlk        A6
 
 .noControlClicked
     DC.W		$A873           ; _SetPort to restore the GrafPort
 
-    BRA.S       CtlEvtDone
+    BRA         CtlEvtDone
 
 **************************** PERIODIC ROUTINE *****************************
 
@@ -264,6 +317,26 @@ aNumStr 	DCB.B	10						; sufficient for 10 GB of space
 ;GlobalSize	EQU		*-GlobalVars			; size of my globals
 ;			ENDR
 
+
+GetFile ; push a 74 byte SFReply structure to the stack
+            ; push an SFReply structure
+            sub     #74,SP
+            move.l  74(SP),(SP)         ; return address at top of stack
+
+;PROCEDURE SFGetFile (where: Point; prompt: Str255; fileFilter: ProcPtr;
+;numTypes: INTEGER; typeList: SFTypeList; dlgHook: ProcPtr; VAR reply:
+;SFReply);
+            clr.l   -(SP)               ; where (point), default
+            clr.l   -(SP)               ; prompt string
+            clr.l   -(SP)               ; fileFilter
+            move.w   #-1,-(SP)          ; numTypes
+            clr.l   -(SP)               ; typeList
+            clr.l   -(SP)               ; dlgHook
+            pea     26(SP)              ; reply structure
+            move.w  #2,-(SP)            ; SFGetFile selector
+            dc.w    $A9EA               ; _Pack3
+
+            rts
 
 
 Poof ; animation, takes D0, ONLY WORKS WITH BASIC QD!
