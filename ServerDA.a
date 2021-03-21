@@ -40,7 +40,7 @@ DAEntry 										; See Device Manager IM:2
 
 DATitle
 	DC.B	15, 'NetBoot Server', 0				; DA Name (& Window Title)
-	dc.b    0, 0, 0x20, 1                       ; traditional version
+	dc.b    0, 0, $20, 1                        ; traditional version
 
 gBackendRefnum
 	dc.w    0
