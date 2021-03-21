@@ -66,7 +66,7 @@ DAOpen
 	MOVE.L		SP,-(SP)						; push a pointer to it
 	DC.W        $A874 ; _GetPort									; push it on top of stack
 	TST.L		$1E(A4)		; DCtlEntry.dCtlWindow do we have a window?
-	BNE.S		StdReturn						; If so, return, Else
+	BNE  		StdReturn						; If so, return, Else
 
 ******************************* NEW WINDOW ROUTINE *************************
 
@@ -101,6 +101,44 @@ DAOpen
     dc.w        $A954       ; _NewControl
     addq        #4,SP
     endif
+
+    ; List Manager cares about the current port when created
+    subq        #4,SP           ; Save the GrafPort
+    move.l      SP,-(SP)
+    dc.w        $A874           ; _GetPort to the stack space we made
+    move.l      $1E(A4),-(SP)   ; dCtlWindow
+    dc.w		$A873           ; _SetPort
+
+    ; Use the cutesy small system font
+    subq        #4,SP
+    pea         theFontInputRecord
+    dc.w        $A901           ; _FMSwapFont
+    addq        #4,SP           ; do we care at all?
+
+    ; create the list
+    ;; pascal ListHandle LNew(const Rect *rView, const ListBounds *dataBounds,
+    ;Point cSize, short theProc, WindowRef theWindow, Boolean drawIt,
+    ;Boolean hasGrow, Boolean scrollHoriz, Boolean scrollVert)
+    subq        #4,SP
+    pea         theList         ; rView
+    pea         listBounds      ; dataBounds
+    clr.l       -(SP)           ; cSize
+    clr.w       -(SP)           ; theProc
+    move.l      $1E(A4),-(SP)   ; theWindow = dCtlWindow
+    st          -(SP)           ; drawIt
+    clr.w       -(SP)           ; hasGrow
+    clr.w       -(SP)           ; scrollHoriz
+    st          -(SP)           ; scrollVert
+    move.w      #$44,-(SP)
+    dc.w        $A9E7           ; _LNew
+
+    ; Stuff the list handle in the window refcon, for want of a better place
+    move.l      $1E(A4),A0
+    move.l      (SP)+,$98(A0)
+
+    dc.w		$A873           ; _SetPort restore
+
+
 
 
 
@@ -265,6 +303,12 @@ DoPeriodic
 ****************************** FONT METRICS *******************************
 
 DrawWindow
+    move.l      2(A3),A0
+    move.l      $18(A0),-(SP)   ; get visRgn
+    move.l      $98(A0),-(SP)   ; cheeky, kept list handle in refcon
+    move.w      #$64,-(SP)
+    dc.w        $A9E7           ; _LUpdate
+
     move.l      2(A3),-(SP)
     dc.w        $A969 ; _DrawControls
 
@@ -300,9 +344,20 @@ s3  dc.b		8, '  Disk: ', 0
 s4  dc.b		9, ' free on '
 
 
-theWindow	DC.W	44,5,64,155			; window top,left,bottom,right
-thePlusBtn	DC.W	2,20,16,90			; window top,left,bottom,right
+theWindow	DC.W	44,5,264,155		; window top,left,bottom,right
+theList	    DC.W	0,0,200,135			; list top,left,bottom,right
+listBounds  DC.W    0,0,1,0
+thePlusBtn	DC.W	202,20,216,90		; window top,left,bottom,right
 plusBtnTitle    dc.b    8, 'Add Disk', 0
+theFontInputRecord
+            dc.w    1           ; family
+            dc.w    0           ; size
+            dc.b    0           ; face/style
+            dc.b    1           ; needBits
+            dc.w    0           ; device
+            dc.w    1,1         ; scale numerator
+            dc.w    1,1         ; scale denominator
+
 
 ; Desk accessories (drivers) cannot use global variables in the normal sense.
 ; Usually, a handle is allocated and stuffed into dCtlStorage and global
