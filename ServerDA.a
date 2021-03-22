@@ -312,6 +312,8 @@ DrawWindow
     move.l      2(A3),-(SP)
     dc.w        $A969 ; _DrawControls
 
+    bsr         DrawFakeGrowBox
+
 Exit
 	RTS
 
@@ -336,6 +338,24 @@ PrintNum
  	DC.W		$A888 ; __TextFace
 	RTS
 
+DrawFakeGrowBox ; fun little routine
+kgbcnt equ 3
+    move.l      (A5),A0
+    move.l      (A0),A0
+    move.l      $14(A0),-(SP)      ; bottom/right of portRect
+    sub.l       #$00080004,(SP)
+    dc.w        $A893           ; _MoveTo
+    moveq.l     #2-1,D4
+.loop
+    move.l      #$0004FFFC,-(SP) ; lower left to upper right of stripe
+    dc.w        $A892           ; _Line
+    move.l      #$FFFA0002,-(SP) ; upper right of this to lower left of next
+    dc.w        $A894           ; _Move
+    dbra        D4,.loop
+
+    rts
+
+
 ******************************* DATA AREA **********************************
 
 s1  dc.b 		9, 'AppHeap: '
@@ -344,11 +364,11 @@ s3  dc.b		8, '  Disk: ', 0
 s4  dc.b		9, ' free on '
 
 
-theWindow	DC.W	44,5,264,155		; window top,left,bottom,right
+theWindow	DC.W	50,5,266,155		; window top,left,bottom,right
 theList	    DC.W	0,0,200,135			; list top,left,bottom,right
 listBounds  DC.W    0,0,1,0
-thePlusBtn	DC.W	202,20,216,90		; window top,left,bottom,right
-plusBtnTitle    dc.b    8, 'Add Disk', 0
+thePlusBtn	DC.W	202,20,215,90	/	; window top,left,bottom,right
+plusBtnTitle    dc.b    5, 'Open', 201 ;...
 theFontInputRecord
             dc.w    1           ; family
             dc.w    0           ; size
