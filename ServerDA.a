@@ -1,9 +1,6 @@
 ***************************************************************************
 ****
-****	MEMORY DESK ACCESSORY - A sample DA written in MPW 68000 Assembly
-****
-****	Copyright Apple Computer, Inc. 1985-1987, 1993, 1998
-****	All rights reserved.
+****	NETBOOT SERVER DESK ACCESSORY
 ****
 ***************************************************************************
 
@@ -14,14 +11,6 @@ feRefNum    equ 6   ; word
 feConnCnt   equ 8   ; byte
 fePermssn   equ 9   ; byte
 feFileName  equ 10  ; variable length pascal string
-
-; Desk accessories (drivers) cannot use global variables in the normal sense.
-; Usually, a handle is allocated and stuffed into dCtlStorage and global
-; variables are stored in this handle.  However, in this example, the globals
-; are allocated at the end of the desk accessory's window record.  Since the
-; window record is always nonrelocatable storage, the variables will never move.
-; This record structure below defines the layout of our "global variables."
-
 
 **************************** DESK ACCESSORY ENTRY **************************
 
@@ -292,26 +281,6 @@ Exit
 
 ***************************** SUBROUTINES ****************************
 
-PrintNum
-
-	; Binary integer to be drawn at CurPenPos in D0 on entry
-	; number drawn in plain text, bolding restored afterwords
-
-	MOVE.L		D0,D6							; for safe keeping
-	CLR.W		-(SP)							; plain text
- 	DC.W		$A888 ; __TextFace
-	MOVE.L		D6,D0							; and back again
-	MOVE.L		$1A(A4),A0		; DCtlEntry.DCtlWindow get window rec pointer
-	LEA 		aNumStr,A0					; get buffer address
-    move.w      #$0000,-(sp)
-    dc.w        $A9EE ; __NumToString								; Binary-Decimal Package
-	MOVE.L		A0,-(SP)						; push the pointer to the str
- 	DC.W		$A884 ; __DrawString
-	MOVE.W		#1,-(SP)						; bold text restored
- 	DC.W		$A888 ; __TextFace
-	RTS
-
-
 UseFakeGrowBox ; takes D0 as point argument, returns NE if not inside
     move.l      (A5),A0
     move.l      (A0),A0
@@ -452,12 +421,6 @@ OpenBtn
 
 ******************************* DATA AREA **********************************
 
-s1  dc.b 		9, 'AppHeap: '
-s2  dc.b		11, '  SysHeap: '
-s3  dc.b		8, '  Disk: ', 0
-s4  dc.b		9, ' free on '
-
-
 theWindow	DC.W	50,5,266,155		; window top,left,bottom,right
 windowLimit DC.W    32,32,32767,32767 ; minH,minW,maxH,maxW
 theList	    DC.W	0,0,200,135			; list top,left,bottom,right
@@ -472,20 +435,6 @@ theFontInputRecord
             dc.w    0           ; device
             dc.w    1,1         ; scale numerator
             dc.w    1,1         ; scale denominator
-
-
-; Desk accessories (drivers) cannot use global variables in the normal sense.
-; Usually, a handle is allocated and stuffed into dCtlStorage and global
-; variables are stored in this handle.  However, in this example, the globals
-; are allocated at the end of the desk accessory's window record.  Since the
-; window record is always nonrelocatable storage, the variables will never move.
-; This record structure below defines the layout of our "global variables."
-
-;GlobalVars	RECORD	WindowRecord.sizeof		; Put variables at end of window rec
-aString 	DCB.B	28						; vol names must be < 28 char
-aNumStr 	DCB.B	10						; sufficient for 10 GB of space
-;GlobalSize	EQU		*-GlobalVars			; size of my globals
-;			ENDR
 
 
 GetFile ; push a 74 byte SFReply structure to the stack
