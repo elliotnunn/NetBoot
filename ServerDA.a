@@ -97,7 +97,7 @@ DAOpen
     clr.w       -(SP)       ; min
     clr.w       -(SP)       ; max
     clr.w       -(SP)       ; procID = push button
-    move.l      #-1,-(SP)   ; refCon
+    move.l      #OpenBtn-DAEntry,-(SP)   ; refCon
     dc.w        $A954       ; _NewControl
     addq        #4,SP
     endif
@@ -251,43 +251,12 @@ CtlEvtMouse
     move.w      (SP)+,D0
     beq.s       .noControlClicked
 
-    link        A6,#0
-    bsr         GetFile
-    tst.b       (SP)
-    beq.s       .cancelOpen
-
-    sub         #50,SP          ; push IOPB for Open
-    lea         50+10(SP),A0    ; SFReply.fName...
-    move.l      A0,18(SP)       ;              ...IONamePtr
-    move.w      50+6(SP),22(SP) ; SFReply.vRefNum...IOVRefNum
-    clr.b       17(SP)          ; IOPermssn
-    move.l      SP,A0
-    dc.w        $A000 ; _Open
-    tst.w       16(SP)
-    bne.s       .cancelOpen     ; maybe we should complain louder?
-
-    ; Create and fill a new queue entry
-    clr.l       D0
-    move.b      50+10(SP),D0
-    add.l       #feFileName+1,D0
-    dc.w        $A71E           ; _NewPtrSysClear
-    move.l      A0,D0
-    beq.s       .cancelOpen
-    move.w      24(SP),feRefNum(A0) ; IORefNum...feRefNum
-    move.b      17(SP),fePermssn(A0) ; IOPermssn...fePermssn
-    moveq.l     #1,D0
-    add.b       50+10(SP),D0
-    lea         feFileName(A0),A1
-    lea         50+10(SP),A0
-    dc.w        $A22E           ; _BlockMoveData the name
-    lea         -feFileName(A1),A0 ; hack to get our register back
-
-    ; And append it to the interrupt-time-accessible queue
-    move.l      gBackendQHdr,A1
-    dc.w        $A96F           ; _Enqueue
-
-.cancelOpen
-    unlk        A6
+    move.l      D3,A0       ; Use the low bits of rfCon as a routine offset
+    move.l      (A0),A0
+    move.l      $24(A0),D0
+    lea         DAEntry,A0
+    add.w       D0,A0
+    jsr         (A0)
 
 .noControlClicked
     DC.W		$A873           ; _SetPort to restore the GrafPort
@@ -438,6 +407,48 @@ kgbcnt equ 3
 
     rts
 
+
+***************************** CONTROLS ****************************
+
+OpenBtn
+    link        A6,#0
+    bsr         GetFile
+    tst.b       (SP)
+    beq.s       .cancelOpen
+
+    sub         #50,SP          ; push IOPB for Open
+    lea         50+10(SP),A0    ; SFReply.fName...
+    move.l      A0,18(SP)       ;              ...IONamePtr
+    move.w      50+6(SP),22(SP) ; SFReply.vRefNum...IOVRefNum
+    clr.b       17(SP)          ; IOPermssn
+    move.l      SP,A0
+    dc.w        $A000 ; _Open
+    tst.w       16(SP)
+    bne.s       .cancelOpen     ; maybe we should complain louder?
+
+    ; Create and fill a new queue entry
+    clr.l       D0
+    move.b      50+10(SP),D0
+    add.l       #feFileName+1,D0
+    dc.w        $A71E           ; _NewPtrSysClear
+    move.l      A0,D0
+    beq.s       .cancelOpen
+    move.w      24(SP),feRefNum(A0) ; IORefNum...feRefNum
+    move.b      17(SP),fePermssn(A0) ; IOPermssn...fePermssn
+    moveq.l     #1,D0
+    add.b       50+10(SP),D0
+    lea         feFileName(A0),A1
+    lea         50+10(SP),A0
+    dc.w        $A22E           ; _BlockMoveData the name
+    lea         -feFileName(A1),A0 ; hack to get our register back
+
+    ; And append it to the interrupt-time-accessible queue
+    move.l      gBackendQHdr,A1
+    dc.w        $A96F           ; _Enqueue
+
+.cancelOpen
+    unlk        A6
+    rts
 
 ******************************* DATA AREA **********************************
 
