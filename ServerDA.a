@@ -227,6 +227,10 @@ CtlEvtMouse
     dc.w        $A871           ;  _GlobalToLocal
     move.l      (SP)+,D4
 
+    move.l      D4,D0
+    bsr         UseFakeGrowBox
+    beq         .noControlClicked ; actually, we resized the window
+
                             ; _FindControl to hit-test
     subq        #4,SP           ; room for the control handle
     subq        #2,SP           ; return value (control ID)
@@ -338,6 +342,85 @@ PrintNum
  	DC.W		$A888 ; __TextFace
 	RTS
 
+
+UseFakeGrowBox ; takes D0 as point argument, returns NE if not inside
+    move.l      (A5),A0
+    move.l      (A0),A0
+    move.l      $14(A0),D1
+    sub.l       D0,D1 ; always positive so should be fine?
+    cmp.w       #16,D1
+    bgt.s       .miss       ; return NE
+    swap        D1
+    cmp.w       #16,D1
+    bgt.s       .miss       ; return NE
+
+    ; Hackity hack... use FakeWDEF to draw the resize-window outline
+    lea         RealWDEFHandle,A1
+    move.l      $7E(A0),(A1)    ; save the real WDEF handle
+    lea         FakeWDEF,A1
+    move.l      A1,-(A1)
+    move.l      A1,$7E(A0)      ; insert the fake one
+
+    move.l      A0,-(SP)    ; _SizeWindow's theWindow
+    subq        #4,SP       ; _GrowWindow's return, _SizeWindow's w/h
+    move.l      A0,-(SP)    ; _GrowWindow's theWindow
+    move.l      D0,-(SP)    ; _GrowWindow's startPt
+    move.l      SP,-(SP)
+    dc.w        $A870       ; _LocalToGlobal on startPt
+    pea         windowLimit
+    dc.w        $A92B       ; _GrowWindow
+    move.l      (A5),A0
+    move.l      (A0),A0
+    move.l      RealWDEFHandle,$7E(A0)  ; Undo the hack
+    st          -(SP)       ; _SizeWindow's fUpdate (do add to upd rgn)
+    dc.w        $A91D       ; _SizeWindow
+
+    clr.w       D0          ; return EQ
+.miss
+    rts
+
+
+; WDEF 1 lacks a wGrow routine, so we roll our own for same cosmetic result as when the window is dragged
+RealWDEFHandle  dc.l    0
+FakeWDEFHandle  dc.l    0
+FakeWDEF
+;FUNCTION MyWindow (varCode: INTEGER; theWindow: WindowPtr; message: INTEGER; param: LONGINT) : LONGINT;
+    cmp.w       #5,8(SP)
+    beq.s       .wGrow
+
+    move.l      RealWDEFHandle,A0   ; Call real WDEF like WMgr would
+    move.l      (A0),D0
+    bne.s       .alreadyLoaded
+    move.l      A0,-(SP)
+    move.l      A0,-(SP)
+    dc.w        $A9A2               ; _LoadResource
+    move.l      (SP)+,A0
+.alreadyLoaded
+    move.l      A0,-(SP)
+    dc.w        $A029               ; _HLock (WMgr will eventually undo this)
+    move.l      (SP)+,A0
+    move.l      (A0),A0
+    jmp         (A0)
+
+.wGrow ;
+    move.l      4(SP),A0            ; "param" = recommended rect pointer
+    move.l      4(A0),-(SP)         ; copy to the stack
+    move.l      (A0),-(SP)
+    sub.w       #19,(SP)            ; adjust rect to frame the chrome
+    sub.w       #1,2(SP)
+    add.w       #1,4(SP)
+    add.w       #1,6(SP)
+    move.l      SP,-(SP)
+    move.l      #16*$00010001,-(SP) ; oval
+    dc.w        $A8B0               ; _FrameRoundRect: same as _DragGrayRgn!
+    addq        #8,SP               ; pop our scratch rect
+
+    move.l      (SP)+,A0            ; return
+    add         #12,SP
+    clr.l       (SP)
+    jmp         (A0)
+
+
 DrawFakeGrowBox ; fun little routine
 kgbcnt equ 3
     move.l      (A5),A0
@@ -365,6 +448,7 @@ s4  dc.b		9, ' free on '
 
 
 theWindow	DC.W	50,5,266,155		; window top,left,bottom,right
+windowLimit DC.W    32,32,32767,32767 ; minH,minW,maxH,maxW
 theList	    DC.W	0,0,200,135			; list top,left,bottom,right
 listBounds  DC.W    0,0,1,0
 thePlusBtn	DC.W	202,20,215,90	/	; window top,left,bottom,right
