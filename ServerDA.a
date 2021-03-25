@@ -12,6 +12,10 @@ feConnCnt   equ 8   ; byte
 fePermssn   equ 9   ; byte
 feFileName  equ 10  ; variable length pascal string
 
+; Initial window size
+kWinW       equ 300
+kWinH       equ 230
+
 **************************** DESK ACCESSORY ENTRY **************************
 
 DAEntry 										; See Device Manager IM:2
@@ -75,21 +79,37 @@ DAOpen
 	MOVE.L		A0,$1E(A4)				; DCtlEntry.DCtlWindow save windowPtr
 	MOVE.W		$18(A4),$6C(A0)	; DCtlEntry.DCtlRefNum system window
 
-    if 1
-    ; now we need to add a control...
-    subq        #4,SP       ; space for result
-    move.l      A0,-(SP)    ; theWindow
-    pea         thePlusBtn  ; boundsRect
-    pea         plusBtnTitle; title
-    st          -(SP)       ; visible
-    clr.w       -(SP)       ; value
-    clr.w       -(SP)       ; min
-    clr.w       -(SP)       ; max
-    clr.w       -(SP)       ; procID = push button
-    move.l      #OpenBtn-DAEntry,-(SP)   ; refCon
-    dc.w        $A954       ; _NewControl
-    addq        #4,SP
-    endif
+    subq        #4,SP       ; Space for _NewControl results
+    move.l      A0,D3
+
+    move.l      D3,-(SP)        ; theWindow
+    pea         OpenBtnRect     ; boundsRect
+    pea         OpenBtnTitle    ; title
+    st          -(SP)           ; visible
+    clr.l       -(SP)           ; value/min
+    clr.l       -(SP)           ; max/procID=pushbtn
+    move.l      #OpenBtn-DAEntry,-(SP)  ; refCon
+    dc.w        $A954           ; _NewControl
+
+    move.l      D3,-(SP)        ; theWindow
+    pea         CloseBtnRect    ; boundsRect
+    pea         CloseBtnTitle   ; title
+    st          -(SP)           ; visible
+    clr.l       -(SP)           ; value/min
+    clr.l       -(SP)           ; max/procID=pushbtn
+    move.l      #CloseBtn-DAEntry,-(SP) ; refCon
+    dc.w        $A954           ; _NewControl
+
+    move.l      D3,-(SP)        ; theWindow
+    pea         DiskBtnRect     ; boundsRect
+    pea         DiskBtnTitle    ; title
+    st          -(SP)           ; visible
+    clr.l       -(SP)           ; value/min
+    clr.l       -(SP)           ; max/procID=pushbtn
+    move.l      #DiskBtn-DAEntry,-(SP)  ; refCon
+    dc.w        $A954           ; _NewControl
+
+    addq        #4,SP       ; no more _NewControl
 
     ; List Manager cares about the current port when created
     subq        #4,SP           ; Save the GrafPort
@@ -379,6 +399,16 @@ kgbcnt equ 3
 
 ***************************** CONTROLS ****************************
 
+OpenBtnRect     dc.w    kWinH-20,kWinW-76,kWinH-3,kWinW-20
+OpenBtnTitle    dc.b    5, 'Open', 201 ;...
+
+CloseBtnRect    dc.w    kWinH-20,kWinW-124,kWinH-3,kWinW-79
+CloseBtnTitle   dc.b    5, 'Close'
+
+DiskBtnRect     dc.w    kWinH-20,3,kWinH-3,3+89
+DiskBtnTitle    dc.b    10, 'Make Disk', 201, 0
+
+
 OpenBtn
     link        A6,#0
     bsr         GetFile
@@ -419,14 +449,18 @@ OpenBtn
     unlk        A6
     rts
 
+
+CloseBtn rts
+DiskBtn rts
+
 ******************************* DATA AREA **********************************
 
-theWindow	DC.W	50,5,266,155		; window top,left,bottom,right
+theWindow	DC.W	50,5,50+kWinH,5+kWinW		; window top,left,bottom,right
 windowLimit DC.W    32,32,32767,32767 ; minH,minW,maxH,maxW
-theList	    DC.W	0,0,200,135			; list top,left,bottom,right
+
+theList	    DC.W	0,0,kWinH-23,kWinW-15			; list top,left,bottom,right
 listBounds  DC.W    0,0,1,0
-thePlusBtn	DC.W	202,20,215,90	/	; window top,left,bottom,right
-plusBtnTitle    dc.b    5, 'Open', 201 ;...
+
 theFontInputRecord
             dc.w    1           ; family
             dc.w    0           ; size
