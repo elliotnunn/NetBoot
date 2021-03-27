@@ -14,8 +14,8 @@ feListRow   equ 10  ; word rowNum within List
 feFileName  equ 12  ; variable length pascal string
 
 ; Initial window size
-kWinW       equ 300
-kWinH       equ 230
+kWinW       equ 219
+kWinH       equ 72
 
 **************************** DESK ACCESSORY ENTRY **************************
 
@@ -594,9 +594,9 @@ DiskBtn rts
 ******************************* DATA AREA **********************************
 
 theWindow	DC.W	50,5,50+kWinH,5+kWinW		; window top,left,bottom,right
-windowLimit DC.W    32,32,32767,32767 ; minH,minW,maxH,maxW
+windowLimit DC.W    kWinH,kWinW,32767,32767 ; minH,minW,maxH,maxW
 
-theList	    DC.W	0,0,kWinH-23,kWinW-15			; list top,left,bottom,right
+theList	    DC.W	0,0,kWinH-24,kWinW-15			; list top,left,bottom,right
 listBounds  DC.W    0,0,0,1
 
 theFontInputRecord
