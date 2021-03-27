@@ -588,7 +588,7 @@ CloseBtn
     dc.w    $A9E7           ; _LGetSelect
     move.w  (SP)+,D0
     movem.l (SP)+,D0
-    beq.s   .macsAreConnected ; stop us crashing if nothing selected
+    beq     .macsAreConnected ; stop us crashing if nothing selected
     swap    D0              ; rownum
 
     move.l  gBackendQHdr,A0
@@ -596,7 +596,7 @@ CloseBtn
     bsr     QueueForEach ; will leave element in A0
 
     tst.w   feConnCnt(A0)
-    bne.s   .macsAreConnected
+    bne     .macsAreConnected
 
     movem.l A0/D0,-(SP)
     move.l  gBackendQHdr,A1
@@ -617,6 +617,31 @@ CloseBtn
     lea     .decrementElementsGreaterThanRow,A1
     bsr     QueueForEach    ; (D0=rownum))
 
+    movem.l (SP),A0/D0
+    subq    #8,SP           ; room for the rect
+    move.l  SP,-(SP)        ; rect ptr
+    swap    D0
+    move.l  D0,-(SP)        ; cell
+    move.l  (A5),A0
+    move.l  (A0),A0         ; window/grafport
+    move.l  $98(A0),-(SP)   ; lHandle = window refCon
+    move.w  #76,-(SP)
+    dc.w    $A9E7           ; _LRect
+    movem.l (SP)+,D0/D1     ; pop the result rect into registers
+
+    bsr     AddPt           ; find the central point of the rect, offset a bit
+    asr.w   #1,D1
+    sub.w   #16,D1
+    swap    D1
+    asr.w   #1,D1
+    sub.w   #16,D1
+    swap    D1
+
+    move.l  D1,-(SP)        ; and save that rect
+    move.l  SP,-(SP)
+    dc.w    $A870           ; _LocalToGlobal
+    move.l  (SP)+,D3        ; okayish way to keep it?
+
     movem.l (SP)+,A0/D0
     move.w  #1,-(SP)        ; count
     move.w  D0,-(SP)        ; rowNum
@@ -625,6 +650,11 @@ CloseBtn
     move.l  $98(A0),-(SP)   ; lHandle = window refCon
     move.w  #36,-(SP)
     dc.w    $A9E7           ; _LDelRow
+
+    move.l  D3,D0
+    movem.l D3-D7/A2-A4,-(SP)
+    bsr     Poof
+    movem.l (SP)+,D3-D7/A2-A4
 
 .macsAreConnected ; Can't delete it
     rts
