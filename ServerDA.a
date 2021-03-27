@@ -354,7 +354,7 @@ UseFakeGrowBox ; takes D0 as point argument, returns NE if not inside, old/new s
     move.l      (A5),A0
     move.l      (A0),A0
     move.l      RealWDEFHandle,$7E(A0)  ; Undo the hack
-    st          -(SP)       ; _SizeWindow's fUpdate (do add to upd rgn)
+    clr.w       -(SP)       ; _SizeWindow's fUpdate (do not touch update rgn)
     dc.w        $A91D       ; _SizeWindow
 
     move.l      (A5),A0     ; return old/new size in D0/D1
