@@ -588,8 +588,90 @@ OpenBtn
     rts
 
 
-CloseBtn rts
+CloseBtn
+    clr.l   -(SP)           ; space for selected cell
+    clr.w   -(SP)           ; result (boolean, so clear to be safe)
+    st      -(SP)           ; next (true means find next selected cell)
+    pea     4(SP)           ; addr of some stack space to return row
+    move.l  (A5),A0
+    move.l  (A0),A0         ; window/grafport
+    move.l  $98(A0),-(SP)   ; lHandle = window refCon
+    move.w  #60,-(SP)
+    dc.w    $A9E7           ; _LGetSelect
+    move.w  (SP)+,D0
+    movem.l (SP)+,D0
+    beq.s   .macsAreConnected ; stop us crashing if nothing selected
+    swap    D0              ; rownum
+
+    move.l  gBackendQHdr,A0
+    lea     .findElementMatchingRow,A1
+    bsr     QueueForEach ; will leave element in A0
+
+    tst.w   feConnCnt(A0)
+    bne.s   .macsAreConnected
+
+    movem.l A0/D0,-(SP)
+    move.l  gBackendQHdr,A1
+    dc.w    $A96E           ; _Dequeue (A0=el, A1=hdr)
+
+    movem.l (SP),A0/D0
+    sub     #50,SP
+    move.w  feRefNum(A0),24(SP) ; set ioRefNum
+    move.l  SP,A0
+    dc.w    $A001           ; _Close
+    add     #50,SP
+
+    movem.l (SP),A0/D0
+    dc.w    $A01F           ; _DisposPtr (A0=el)
+
+    movem.l (SP),A0/D0
+    move.l  gBackendQHdr,A0
+    lea     .decrementElementsGreaterThanRow,A1
+    bsr     QueueForEach    ; (D0=rownum))
+
+    movem.l (SP)+,A0/D0
+    move.w  #1,-(SP)        ; count
+    move.w  D0,-(SP)        ; rowNum
+    move.l  (A5),A0
+    move.l  (A0),A0         ; window/grafport
+    move.l  $98(A0),-(SP)   ; lHandle = window refCon
+    move.w  #36,-(SP)
+    dc.w    $A9E7           ; _LDelRow
+
+.macsAreConnected ; Can't delete it
+    rts
+
+.findElementMatchingRow ; callback for QueueForEach
+    cmp.w   feListRow(A0),D0
+    bne.s   .searchContinue
+    addq    #4,SP           ; cancel the loop
+.searchContinue
+    rts
+
+.decrementElementsGreaterThanRow ; callback for QueueForEach
+    cmp.w   feListRow(A0),D0
+    bhi.s   .noDecrement
+    sub.w   #1,feListRow(A0)
+.noDecrement
+rts
+
+
 DiskBtn rts
+
+
+QueueForEach ; A0 = pointer to q header, A1 = func, preserves ALL other registers
+    addq    #2,A0
+.loop
+    move.l  (A0),-(SP)  ; saves us from wasting a data register
+    tst.l   (SP)
+    beq.s   .exit
+    move.l  (SP)+,A0
+    jsr     (A1)
+    bra.s   .loop
+.exit
+    addq    #4,SP
+    rts
+
 
 ******************************* DATA AREA **********************************
 
