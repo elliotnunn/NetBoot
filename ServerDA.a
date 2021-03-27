@@ -189,8 +189,6 @@ DACtl
 	MOVE.W		$1A(A0),D0		; get the control opCode
 	SUB.W		#64,D0					; = 64? (event)
 	BEQ.S		DoCtlEvent
-	SUB.W		#1,D0							; = 65? (periodic)
-	BEQ 		DoPeriodic
 
 CtlDone
 	MOVE.L		A4,A1							; put DCE ptr back in A1
@@ -293,16 +291,6 @@ CtlEvtMouse
     DC.W		$A873           ; _SetPort to restore the GrafPort
 
     BRA         CtlEvtDone
-
-**************************** PERIODIC ROUTINE *****************************
-
-DoPeriodic
-	MOVE.L		$1E(A4),-(SP)	; DCtlEntry.DCtlWindow set the port
- 	DC.W		$A873 ; __SetPort
-
-	BSR.S		DrawWindow						; draw our window every 5s
-	BRA 		CtlDone
-
 
 ****************************** FONT METRICS *******************************
 
