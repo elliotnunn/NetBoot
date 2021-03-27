@@ -10,7 +10,8 @@ feQType     equ 4   ; word
 feRefNum    equ 6   ; word
 feConnCnt   equ 8   ; byte
 fePermssn   equ 9   ; byte
-feFileName  equ 10  ; variable length pascal string
+feListRow   equ 10  ; word rowNum within List
+feFileName  equ 12  ; variable length pascal string
 
 ; Initial window size
 kWinW       equ 300
@@ -240,6 +241,24 @@ CtlEvtMouse
     bsr         UseFakeGrowBox
     beq         .noControlClicked ; actually, we resized the window
 
+    subq        #2,SP       ; List Manager to handle it?
+    move.l      D4,-(SP)
+    move.w      #1,2(SP)        ; fake the X pos for _PtInRect to as "always yes"
+    move.l      (A5),A0
+    move.l      (A0),A0         ; the window record
+    move.l      $98(A0),A2      ; the list handle
+    move.l      (A2),-(SP)      ; pointer to the first list field, namely the rect
+    dc.w        $A8AD           ; _PtInRect
+    tst.b       (SP)+
+    beq.s       .notListClick
+    move.l      D4,-(SP)        ; pt
+    clr.w       -(SP)           ; modifiers
+    move.l      A2,-(SP)        ; lHandle
+    move.w      #24,-(SP)
+    dc.w        $A9E7           ; _LClick
+    bra.s       .noControlClicked
+.notListClick
+
                             ; _FindControl to hit-test
     subq        #4,SP           ; room for the control handle
     subq        #2,SP           ; return value (control ID)
@@ -413,7 +432,7 @@ OpenBtn
     link        A6,#0
     bsr         GetFile
     tst.b       (SP)
-    beq.s       .cancelOpen
+    beq         .cancelOpen
 
     sub         #50,SP          ; push IOPB for Open
     lea         50+10(SP),A0    ; SFReply.fName...
@@ -423,7 +442,7 @@ OpenBtn
     move.l      SP,A0
     dc.w        $A000 ; _Open
     tst.w       16(SP)
-    bne.s       .cancelOpen     ; maybe we should complain louder?
+    bne         .cancelOpen     ; maybe we should complain louder?
 
     ; Create and fill a new queue entry
     clr.l       D0
@@ -440,10 +459,35 @@ OpenBtn
     lea         50+10(SP),A0
     dc.w        $A22E           ; _BlockMoveData the name
     lea         -feFileName(A1),A0 ; hack to get our register back
+    move.l      A0,A2
 
     ; And append it to the interrupt-time-accessible queue
     move.l      gBackendQHdr,A1
     dc.w        $A96F           ; _Enqueue
+
+    ; Append the entry to the list
+    subq        #2,SP
+    move.w      #1,-(SP)            ; one row
+    move.w      #$7FFF,-(SP)        ; beyond current bounds
+    move.l      (A5),A0
+    move.l      (A0),A0             ; window/grafport
+    move.l      $98(A0),-(SP)       ; lHandle = window refCon
+    move.w      #8,-(SP)
+    dc.w        $A9E7               ; _LAddRow
+    move.w      (SP)+,feListRow(A2)
+
+    ; And make that the string of the entry
+    pea         feFileName+1(A2)    ; dataPtr
+    moveq.l     #0,D0
+    move.b      feFileName(A2),D0
+    move.w      D0,-(SP)            ; dataLen
+    move.w      #0,-(SP)            ; cell column
+    move.w      feListRow(A2),-(SP) ; cell row
+    move.l      (A5),A0
+    move.l      (A0),A0             ; window/grafport handle
+    move.l      $98(A0),-(SP)       ; lHandle = window refCon
+    move.w      #88,-(SP)
+    dc.w        $A9E7               ; _LSetCell
 
 .cancelOpen
     unlk        A6
@@ -459,7 +503,7 @@ theWindow	DC.W	50,5,50+kWinH,5+kWinW		; window top,left,bottom,right
 windowLimit DC.W    32,32,32767,32767 ; minH,minW,maxH,maxW
 
 theList	    DC.W	0,0,kWinH-23,kWinW-15			; list top,left,bottom,right
-listBounds  DC.W    0,0,1,0
+listBounds  DC.W    0,0,0,1
 
 theFontInputRecord
             dc.w    1           ; family
