@@ -20,351 +20,351 @@ kWinH       equ 72
 **************************** DESK ACCESSORY ENTRY **************************
 
 DAEntry                                         ; See Device Manager IM:2
-    DC.B    $04                                 ; dCtlEnable only
-    DC.B    0                                   ; Lower byte is unused
-    DC.W    5*60                                ; 5 sec periodic update
-    DC.W    $42                                 ; mouseDown updateEvt
-    DC.W    0                                   ; No menu for this accessory
+        dc.b    $04                                 ; dCtlEnable only
+        dc.b    0                                   ; Lower byte is unused
+        dc.w    5*60                                ; 5 sec periodic update
+        dc.w    $42                                 ; mouseDown updateEvt
+        dc.w    0                                   ; No menu for this accessory
 
-    DC.W    DAOpen-DAEntry                      ; Open routine
-    DC.W    DADone-DAEntry                      ; Prime - unused
-    DC.W    DACtl-DAEntry                       ; Control
-    DC.W    DADone-DAEntry                      ; Status - unused
-    DC.W    DAClose-DAEntry                     ; Close
+        dc.w    DAOpen-DAEntry                      ; Open routine
+        dc.w    DADone-DAEntry                      ; Prime - unused
+        dc.w    DACtl-DAEntry                       ; Control
+        dc.w    DADone-DAEntry                      ; Status - unused
+        dc.w    DAClose-DAEntry                     ; Close
 
 DATitle
-    DC.B    15, 'NetBoot Server', 0             ; DA Name (& Window Title)
-    dc.b    0, 0, $20, 1                        ; traditional version
+        dc.b    15, 'NetBoot Server', 0             ; DA Name (& Window Title)
+        dc.b    0, 0, $20, 1                        ; traditional version
 
 gBackendRefnum
-    dc.w    0
+        dc.w    0
 gBackendQHdr
-    dc.l    0
+        dc.l    0
 
 HackQueueHeader
-    dcb.b   10 ; our queue header for now...
+        dcb.b   10 ; our queue header for now...
 
 
 ************************ DESK ACCESSORY OPEN ROUTINE ***********************
 
 DAOpen
-    MOVEM.L     A1-A4,-(SP)                     ; preserve A1-A4
-    MOVE.L      A1,A4                           ; MOVE DCE pointer to a reg
+        movem.l A1-A4,-(SP)                     ; preserve A1-A4
+        move.l  A1,A4                           ; MOVE DCE pointer to a reg
 
 ; Install the backend driver (anywhere in the unit table)
-    move.w      $18(A1),D0      ; dCtlRefNum, so we need A0 to be intact
-    not.w       D0
-    asl.w       #5,D0
-    or.w        #$C000,D0       ; "owned resource" ID
-    subq        #4,SP
-    move.l      #'DRVR',-(SP)
-    move.w      D0,-(SP)
-    dc.w        $A9A0           ; _GetResource (will be locked in sysheap)
-    move.l      (SP)+,A0
-    move.l      (A0),A0
-    bsr         InstallAndOpenDriver
+        move.w  $18(A1),D0      ; dCtlRefNum, so we need A0 to be intact
+        not.w   D0
+        asl.w   #5,D0
+        or.w    #$C000,D0       ; "owned resource" ID
+        subq    #4,SP
+        move.l  #'DRVR',-(SP)
+        move.w  D0,-(SP)
+        dc.w    $A9A0           ; _GetResource (will be locked in sysheap)
+        move.l  (SP)+,A0
+        move.l  (A0),A0
+        bsr     InstallAndOpenDriver
 
 ; Create a fake queue to use until the backend driver is written
-    lea         gBackendQHdr,A0
-    lea         HackQueueHeader,A1
-    move.l      A1,(A0)
+        lea     gBackendQHdr,A0
+        lea     HackQueueHeader,A1
+        move.l  A1,(A0)
 
-    SUBQ.L      #4,SP                           ; FUNCTION = GrafPtr
-    MOVE.L      SP,-(SP)                        ; push a pointer to it
-    DC.W        $A874 ; _GetPort                                    ; push it on top of stack
-    TST.L       $1E(A4)     ; DCtlEntry.dCtlWindow do we have a window?
-    BNE         StdReturn                       ; If so, return, Else
+        subq.l  #4,SP                           ; FUNCTION = GrafPtr
+        move.l  SP,-(SP)                        ; push a pointer to it
+        dc.w    $A874 ; _GetPort                                    ; push it on top of stack
+        tst.l   $1E(A4)     ; DCtlEntry.dCtlWindow do we have a window?
+        bne     StdReturn                       ; If so, return, Else
 
 ******************************* NEW WINDOW ROUTINE *************************
 
-    MOVE.L      #156,D0 ; WindowRecord size
-    DC.W        $A11E ; _NewPtr                                     ; allocate space for record
-    SUBQ        #4,SP                           ; FUNCTION = WindowRef
-    MOVE.L      A0,-(SP)                        ; address of storage
-    PEA         theWindow                       ; boundsRect
-    PEA         DATitle                         ; title
-    CLR.W       -(SP)                           ; visible flag FALSE
-    MOVE.W      #16,-(SP)                       ; window proc = rDocProc, 16px rounding
-    MOVE.L      #-1,-(SP)                       ; window in front
-    MOVE.B      #1,-(SP)                        ; goAway box TRUE
-    MOVE.l      #-1,-(SP)                       ; refCon = -1 (special)
-    DC.W        $A913 ; __NewWindow
-    MOVE.L      (SP)+,A0
-    MOVE.L      A0,$1E(A4)              ; DCtlEntry.DCtlWindow save windowPtr
-    MOVE.W      $18(A4),$6C(A0) ; DCtlEntry.DCtlRefNum system window
+        move.l  #156,D0 ; WindowRecord size
+        dc.w    $A11E ; _NewPtr                                     ; allocate space for record
+        subq    #4,SP                           ; FUNCTION = WindowRef
+        move.l  A0,-(SP)                        ; address of storage
+        pea     theWindow                       ; boundsRect
+        pea     DATitle                         ; title
+        clr.w   -(SP)                           ; visible flag FALSE
+        move.w  #16,-(SP)                       ; window proc = rDocProc, 16px rounding
+        move.l  #-1,-(SP)                       ; window in front
+        move.b  #1,-(SP)                        ; goAway box TRUE
+        move.l  #-1,-(SP)                       ; refCon = -1 (special)
+        dc.w    $A913 ; __NewWindow
+        move.l  (SP)+,A0
+        move.l  A0,$1E(A4)              ; DCtlEntry.DCtlWindow save windowPtr
+        move.w  $18(A4),$6C(A0) ; DCtlEntry.DCtlRefNum system window
 
-    subq        #4,SP       ; Space for _NewControl results
-    move.l      A0,D3
+        subq    #4,SP       ; Space for _NewControl results
+        move.l  A0,D3
 
-    move.l      D3,-(SP)        ; theWindow
-    pea         OpenBtnRect     ; boundsRect
-    pea         OpenBtnTitle    ; title
-    st          -(SP)           ; visible
-    clr.l       -(SP)           ; value/min
-    clr.l       -(SP)           ; max/procID=pushbtn
-    move.l      #$80000000+OpenBtn-DAEntry,-(SP)  ; refCon (high flag means pin right)
-    dc.w        $A954           ; _NewControl
+        move.l  D3,-(SP)        ; theWindow
+        pea     OpenBtnRect     ; boundsRect
+        pea     OpenBtnTitle    ; title
+        st      -(SP)           ; visible
+        clr.l   -(SP)           ; value/min
+        clr.l   -(SP)           ; max/procID=pushbtn
+        move.l  #$80000000+OpenBtn-DAEntry,-(SP)  ; refCon (high flag means pin right)
+        dc.w    $A954           ; _NewControl
 
-    move.l      D3,-(SP)        ; theWindow
-    pea         CloseBtnRect    ; boundsRect
-    pea         CloseBtnTitle   ; title
-    st          -(SP)           ; visible
-    clr.l       -(SP)           ; value/min
-    clr.l       -(SP)           ; max/procID=pushbtn
-    move.l      #$80000000+CloseBtn-DAEntry,-(SP) ; refCon
-    dc.w        $A954           ; _NewControl
+        move.l  D3,-(SP)        ; theWindow
+        pea     CloseBtnRect    ; boundsRect
+        pea     CloseBtnTitle   ; title
+        st      -(SP)           ; visible
+        clr.l   -(SP)           ; value/min
+        clr.l   -(SP)           ; max/procID=pushbtn
+        move.l  #$80000000+CloseBtn-DAEntry,-(SP) ; refCon
+        dc.w    $A954           ; _NewControl
 
-    move.l      D3,-(SP)        ; theWindow
-    pea         DiskBtnRect     ; boundsRect
-    pea         DiskBtnTitle    ; title
-    st          -(SP)           ; visible
-    clr.l       -(SP)           ; value/min
-    clr.l       -(SP)           ; max/procID=pushbtn
-    move.l      #DiskBtn-DAEntry,-(SP)  ; refCon
-    dc.w        $A954           ; _NewControl
+        move.l  D3,-(SP)        ; theWindow
+        pea     DiskBtnRect     ; boundsRect
+        pea     DiskBtnTitle    ; title
+        st      -(SP)           ; visible
+        clr.l   -(SP)           ; value/min
+        clr.l   -(SP)           ; max/procID=pushbtn
+        move.l  #DiskBtn-DAEntry,-(SP)  ; refCon
+        dc.w    $A954           ; _NewControl
 
-    addq        #4,SP       ; no more _NewControl
+        addq    #4,SP       ; no more _NewControl
 
-    ; List Manager cares about the current port when created
-    subq        #4,SP           ; Save the GrafPort
-    move.l      SP,-(SP)
-    dc.w        $A874           ; _GetPort to the stack space we made
-    move.l      $1E(A4),-(SP)   ; dCtlWindow
-    dc.w        $A873           ; _SetPort
+        ; List Manager cares about the current port when created
+        subq    #4,SP           ; Save the GrafPort
+        move.l  SP,-(SP)
+        dc.w    $A874           ; _GetPort to the stack space we made
+        move.l  $1E(A4),-(SP)   ; dCtlWindow
+        dc.w    $A873           ; _SetPort
 
-    ; Use the cutesy small system font
-    subq        #4,SP
-    pea         theFontInputRecord
-    dc.w        $A901           ; _FMSwapFont
-    addq        #4,SP           ; do we care at all?
+        ; Use the cutesy small system font
+        subq    #4,SP
+        pea     theFontInputRecord
+        dc.w    $A901           ; _FMSwapFont
+        addq    #4,SP           ; do we care at all?
 
-    ; create the list
-    ;; pascal ListHandle LNew(const Rect *rView, const ListBounds *dataBounds,
-    ;Point cSize, short theProc, WindowRef theWindow, Boolean drawIt,
-    ;Boolean hasGrow, Boolean scrollHoriz, Boolean scrollVert)
-    subq        #4,SP
-    pea         theList         ; rView
-    pea         listBounds      ; dataBounds
-    clr.l       -(SP)           ; cSize
-    clr.w       -(SP)           ; theProc
-    move.l      $1E(A4),-(SP)   ; theWindow = dCtlWindow
-    st          -(SP)           ; drawIt
-    clr.w       -(SP)           ; hasGrow
-    clr.w       -(SP)           ; scrollHoriz
-    st          -(SP)           ; scrollVert
-    move.w      #$44,-(SP)
-    dc.w        $A9E7           ; _LNew
+        ; create the list
+        ;; pascal ListHandle LNew(const Rect *rView, const ListBounds *dataBounds,
+        ;Point cSize, short theProc, WindowRef theWindow, Boolean drawIt,
+        ;Boolean hasGrow, Boolean scrollHoriz, Boolean scrollVert)
+        subq    #4,SP
+        pea     theList         ; rView
+        pea     listBounds      ; dataBounds
+        clr.l   -(SP)           ; cSize
+        clr.w   -(SP)           ; theProc
+        move.l  $1E(A4),-(SP)   ; theWindow = dCtlWindow
+        st      -(SP)           ; drawIt
+        clr.w   -(SP)           ; hasGrow
+        clr.w   -(SP)           ; scrollHoriz
+        st      -(SP)           ; scrollVert
+        move.w  #$44,-(SP)
+        dc.w    $A9E7           ; _LNew
 
-    ; Stuff the list handle in the window refcon, for want of a better place
-    move.l      $1E(A4),A0
-    move.l      (SP)+,$98(A0)
+        ; Stuff the list handle in the window refcon, for want of a better place
+        move.l  $1E(A4),A0
+        move.l  (SP)+,$98(A0)
 
-    dc.w        $A873           ; _SetPort restore
+        dc.w    $A873           ; _SetPort restore
 
 
 
 
 
 StdReturn
-    DC.W        $A873 ; __SetPort                                   ; old port on stack
-    MOVEM.L     (SP)+,A1-A4                     ; restore regs
+        dc.w    $A873 ; __SetPort                                   ; old port on stack
+        movem.l (SP)+,A1-A4                     ; restore regs
 
 
 ************************ DESK ACCESSORY DONE ROUTINE ***********************
 
 DADone
-    MOVEQ       #0,D0                           ; return no error
-    RTS                                         ; all done, exit
+        moveq   #0,D0                           ; return no error
+        rts                                         ; all done, exit
 
 
 ************************ DESK ACCESSORY CLOSE ROUTINE **********************
 
 DAClose
-    MOVEM.L     A1-A4,-(SP)                     ; preserve A1-A4
-    MOVE.L      A1,A4                           ; MOVE DCE ptr to A4
+        movem.l A1-A4,-(SP)                     ; preserve A1-A4
+        move.l  A1,A4                           ; MOVE DCE ptr to A4
 
-    SUBQ.L      #4,SP                           ; FUNCTION = GrafPtr
-    MOVE.L      SP,-(SP)                        ; push a pointer to it
-    DC.W        $A874 ; __GetPort                                   ; get it, now it's on TOS
+        subq.l  #4,SP                           ; FUNCTION = GrafPtr
+        move.l  SP,-(SP)                        ; push a pointer to it
+        dc.w    $A874 ; __GetPort                                   ; get it, now it's on TOS
 
-    MOVE.L      $1E(A4),-(SP)   ; DCtlEntry.DCtlWindow push the window
-    DC.W        $A914 ; __DisposeWindow                             ; dispose of the window
+        move.l  $1E(A4),-(SP)   ; DCtlEntry.DCtlWindow push the window
+        dc.w    $A914 ; __DisposeWindow                             ; dispose of the window
 
-    CLR.L       2(A3)       ; DCtlEntry.DCtlWindow mark DCE properly
-    BRA.S       StdReturn                       ; all done with close, exit
+        clr.l   2(A3)       ; DCtlEntry.DCtlWindow mark DCE properly
+        bra.s   StdReturn                       ; all done with close, exit
 
 
 ********************** DESK ACCESSORY CONTROL ROUTINE **********************
 
 DACtl
-    MOVE.L      A4,-(SP)                        ; preserve reg
-    MOVE.L      A1,A4                           ; move DCE ptr to A4
-    MOVE.W      $1A(A0),D0      ; get the control opCode
-    SUB.W       #64,D0                  ; = 64? (event)
-    BEQ.S       DoCtlEvent
+        move.l  A4,-(SP)                        ; preserve reg
+        move.l  A1,A4                           ; move DCE ptr to A4
+        move.w  $1A(A0),D0      ; get the control opCode
+        sub.w   #64,D0                  ; = 64? (event)
+        beq.s   DoCtlEvent
 
 CtlDone
-    MOVE.L      A4,A1                           ; put DCE ptr back in A1
-    MOVE.L      (SP)+,A4                        ; restore reg
-    MOVEQ       #0,D0                           ; return no error
-    MOVE.L      $8FC,-(SP)                  ; jump to IODone
-    RTS
+        move.l  A4,A1                           ; put DCE ptr back in A1
+        move.l  (SP)+,A4                        ; restore reg
+        moveq   #0,D0                           ; return no error
+        move.l  $8FC,-(SP)                  ; jump to IODone
+        rts
 
 
 ************************** EVENT HANDLING ROUTINE **************************
 
 DoCtlEvent
-    MOVE.L      A3,-(SP)                        ; save reg
-    MOVE.L      $1C(A0),A3                      ; CntrlParam.CSParam = event pointer
-    MOVE.W      0(A3),D0                        ; EventRecord.what
-    CMP.W       #1,D0
-    BEQ.S       CtlEvtMouse
-    SUBQ        #6,D0                   ; updateEvt is it an update?
-    BNE.S       CtlEvtDone                      ; If not, exit
+        move.l  A3,-(SP)                        ; save reg
+        move.l  $1C(A0),A3                      ; CntrlParam.CSParam = event pointer
+        move.w  0(A3),D0                        ; EventRecord.what
+        cmp.w   #1,D0
+        beq.s   CtlEvtMouse
+        subq    #6,D0                   ; updateEvt is it an update?
+        bne.s   CtlEvtDone                      ; If not, exit
 
-    MOVE.L      2(A3),-(SP) ; EventRecord.message push windowPtr
-    DC.W        $A922 ; __BeginUpdate                               ; begin the update operation
+        move.l  2(A3),-(SP) ; EventRecord.message push windowPtr
+        dc.w    $A922 ; __BeginUpdate                               ; begin the update operation
 
-    MOVE.L      2(A3),-(SP) ; EventRecord.message push windowPtr again
-    DC.W        $A873 ; __SetPort
-    BSR         DrawWindow                      ; draw our items
+        move.l  2(A3),-(SP) ; EventRecord.message push windowPtr again
+        dc.w    $A873 ; __SetPort
+        bsr     DrawWindow                      ; draw our items
 
-    MOVE.L      2(A3),-(SP) ; EventRecord.message one more time
-    DC.W        $A923 ; __EndUpdate                                 ; end of update
+        move.l  2(A3),-(SP) ; EventRecord.message one more time
+        dc.w    $A923 ; __EndUpdate                                 ; end of update
 
 CtlEvtDone
-    MOVE.L      (SP)+,A3                        ; restore reg
-    BRA.S       CtlDone                         ; exit
+        move.l  (SP)+,A3                        ; restore reg
+        bra.s   CtlDone                         ; exit
 
 CtlEvtMouse
-    subq        #4,SP           ; Save the GrafPort (good manners)
-    move.l      SP,-(SP)
-    dc.w        $A874           ; _GetPort to the stack space we made
-    move.l      $1E(A4),-(SP)   ; dCtlWindow
-    DC.W        $A873           ; _SetPort
+        subq    #4,SP           ; Save the GrafPort (good manners)
+        move.l  SP,-(SP)
+        dc.w    $A874           ; _GetPort to the stack space we made
+        move.l  $1E(A4),-(SP)   ; dCtlWindow
+        dc.w    $A873           ; _SetPort
 
-    move.l      10(A3),-(SP); Get D4 as the point in our coords
-    move.l      SP,-(SP)
-    dc.w        $A871           ;  _GlobalToLocal
-    move.l      (SP)+,D4
+        move.l  10(A3),-(SP); Get D4 as the point in our coords
+        move.l  SP,-(SP)
+        dc.w    $A871           ;  _GlobalToLocal
+        move.l  (SP)+,D4
 
-    move.l      D4,D0
-    bsr         UseFakeGrowBox ; takes pt in D0, leaves old/new sizes in D0/D1
-    bne.s       .didNotResize
-    bsr         MoveWindowControls
-    bra.s       .noControlClicked
+        move.l  D4,D0
+        bsr     UseFakeGrowBox ; takes pt in D0, leaves old/new sizes in D0/D1
+        bne.s   .didNotResize
+        bsr     MoveWindowControls
+        bra.s   .noControlClicked
 .didNotResize
 
-    subq        #2,SP       ; List Manager to handle it?
-    move.l      D4,-(SP)
-    move.w      #1,2(SP)        ; fake the X pos for _PtInRect to as "always yes"
-    move.l      (A5),A0
-    move.l      (A0),A0         ; the window record
-    move.l      $98(A0),A2      ; the list handle
-    move.l      (A2),-(SP)      ; pointer to the first list field, namely the rect
-    dc.w        $A8AD           ; _PtInRect
-    tst.b       (SP)+
-    beq.s       .notListClick
-    move.l      D4,-(SP)        ; pt
-    clr.w       -(SP)           ; modifiers
-    move.l      A2,-(SP)        ; lHandle
-    move.w      #24,-(SP)
-    dc.w        $A9E7           ; _LClick
-    bra.s       .noControlClicked
+        subq    #2,SP       ; List Manager to handle it?
+        move.l  D4,-(SP)
+        move.w  #1,2(SP)        ; fake the X pos for _PtInRect to as "always yes"
+        move.l  (A5),A0
+        move.l  (A0),A0         ; the window record
+        move.l  $98(A0),A2      ; the list handle
+        move.l  (A2),-(SP)      ; pointer to the first list field, namely the rect
+        dc.w    $A8AD           ; _PtInRect
+        tst.b   (SP)+
+        beq.s   .notListClick
+        move.l  D4,-(SP)        ; pt
+        clr.w   -(SP)           ; modifiers
+        move.l  A2,-(SP)        ; lHandle
+        move.w  #24,-(SP)
+        dc.w    $A9E7           ; _LClick
+        bra.s   .noControlClicked
 .notListClick
 
-                            ; _FindControl to hit-test
-    subq        #4,SP           ; room for the control handle
-    subq        #2,SP           ; return value (control ID)
-    move.l      D4,-(SP)        ; thePoint = our converted point
-    move.l      $1E(A4),-(SP)   ; theWindow = dCtlWindow
-    pea         10(SP)          ; whichControl = pointer to where to dump handle
-    dc.w        $A96C           ; _FindControl
-    addq        #2,SP           ; don't care about ID
-    move.l      (SP)+,D3        ; pop control handle
-    beq.s       .noControlClicked
+        ; _FindControl to hit-test
+        subq    #4,SP           ; room for the control handle
+        subq    #2,SP           ; return value (control ID)
+        move.l  D4,-(SP)        ; thePoint = our converted point
+        move.l  $1E(A4),-(SP)   ; theWindow = dCtlWindow
+        pea     10(SP)          ; whichControl = pointer to where to dump handle
+        dc.w    $A96C           ; _FindControl
+        addq    #2,SP           ; don't care about ID
+        move.l  (SP)+,D3        ; pop control handle
+        beq.s   .noControlClicked
 
-                            ; _TrackControl to hilite while mouse down
-    subq        #2,SP           ; room for result integer
-    move.l      D3,-(SP)        ; theControl = control handle
-    move.l      D4,-(SP)        ; startPt = our converted point
-    clr.l       -(SP)           ; actionProc = 0
-    dc.w        $A968           ; _TrackControl
-    move.w      (SP)+,D0
-    beq.s       .noControlClicked
+        ; _TrackControl to hilite while mouse down
+        subq    #2,SP           ; room for result integer
+        move.l  D3,-(SP)        ; theControl = control handle
+        move.l  D4,-(SP)        ; startPt = our converted point
+        clr.l   -(SP)           ; actionProc = 0
+        dc.w    $A968           ; _TrackControl
+        move.w  (SP)+,D0
+        beq.s   .noControlClicked
 
-    move.l      D3,A0       ; Use the low bits of rfCon as a routine offset
-    move.l      (A0),A0
-    move.l      $24(A0),D0
-    lea         DAEntry,A0
-    add.w       D0,A0
-    jsr         (A0)
+        move.l  D3,A0       ; Use the low bits of rfCon as a routine offset
+        move.l  (A0),A0
+        move.l  $24(A0),D0
+        lea     DAEntry,A0
+        add.w   D0,A0
+        jsr     (A0)
 
 .noControlClicked
-    DC.W        $A873           ; _SetPort to restore the GrafPort
+        dc.w    $A873           ; _SetPort to restore the GrafPort
 
-    BRA         CtlEvtDone
+        bra     CtlEvtDone
 
 ****************************** FONT METRICS *******************************
 
 DrawWindow
-    move.l      2(A3),A0
-    move.l      $18(A0),-(SP)   ; get visRgn
-    move.l      $98(A0),-(SP)   ; cheeky, kept list handle in refcon
-    move.w      #$64,-(SP)
-    dc.w        $A9E7           ; _LUpdate
+        move.l  2(A3),A0
+        move.l  $18(A0),-(SP)   ; get visRgn
+        move.l  $98(A0),-(SP)   ; cheeky, kept list handle in refcon
+        move.w  #$64,-(SP)
+        dc.w    $A9E7           ; _LUpdate
 
-    move.l      2(A3),-(SP)
-    dc.w        $A969 ; _DrawControls
+        move.l  2(A3),-(SP)
+        dc.w    $A969 ; _DrawControls
 
-    bsr         DrawFakeGrowBox
+        bsr     DrawFakeGrowBox
 
 Exit
-    RTS
+        rts
 
 ***************************** SUBROUTINES ****************************
 
 UseFakeGrowBox ; takes D0 as point argument, returns NE if not inside, old/new size in D0/D1
-    move.l      (A5),A0
-    move.l      (A0),A0
-    move.l      $14(A0),D1
-    sub.l       D0,D1 ; always positive so should be fine?
-    cmp.w       #16,D1
-    bgt.s       .miss       ; return NE
-    swap        D1
-    cmp.w       #16,D1
-    bgt.s       .miss       ; return NE
+        move.l  (A5),A0
+        move.l  (A0),A0
+        move.l  $14(A0),D1
+        sub.l   D0,D1 ; always positive so should be fine?
+        cmp.w   #16,D1
+        bgt.s   .miss       ; return NE
+        swap    D1
+        cmp.w   #16,D1
+        bgt.s   .miss       ; return NE
 
-    ; Hackity hack... use FakeWDEF to draw the resize-window outline
-    lea         RealWDEFHandle,A1
-    move.l      $7E(A0),(A1)    ; save the real WDEF handle
-    lea         FakeWDEF,A1
-    move.l      A1,-(A1)
-    move.l      A1,$7E(A0)      ; insert the fake one
+        ; Hackity hack... use FakeWDEF to draw the resize-window outline
+        lea     RealWDEFHandle,A1
+        move.l  $7E(A0),(A1)    ; save the real WDEF handle
+        lea     FakeWDEF,A1
+        move.l  A1,-(A1)
+        move.l  A1,$7E(A0)      ; insert the fake one
 
-    move.l      $14(A0),-(SP)   ; Keep botRight of old portRect
+        move.l  $14(A0),-(SP)   ; Keep botRight of old portRect
 
-    move.l      A0,-(SP)    ; _SizeWindow's theWindow
-    subq        #4,SP       ; _GrowWindow's return, _SizeWindow's w/h
-    move.l      A0,-(SP)    ; _GrowWindow's theWindow
-    move.l      D0,-(SP)    ; _GrowWindow's startPt
-    move.l      SP,-(SP)
-    dc.w        $A870       ; _LocalToGlobal on startPt
-    pea         windowLimit
-    dc.w        $A92B       ; _GrowWindow
-    move.l      (A5),A0
-    move.l      (A0),A0
-    move.l      RealWDEFHandle,$7E(A0)  ; Undo the hack
-    clr.w       -(SP)       ; _SizeWindow's fUpdate (do not touch update rgn)
-    dc.w        $A91D       ; _SizeWindow
+        move.l  A0,-(SP)    ; _SizeWindow's theWindow
+        subq    #4,SP       ; _GrowWindow's return, _SizeWindow's w/h
+        move.l  A0,-(SP)    ; _GrowWindow's theWindow
+        move.l  D0,-(SP)    ; _GrowWindow's startPt
+        move.l  SP,-(SP)
+        dc.w    $A870       ; _LocalToGlobal on startPt
+        pea     windowLimit
+        dc.w    $A92B       ; _GrowWindow
+        move.l  (A5),A0
+        move.l  (A0),A0
+        move.l  RealWDEFHandle,$7E(A0)  ; Undo the hack
+        clr.w   -(SP)       ; _SizeWindow's fUpdate (do not touch update rgn)
+        dc.w    $A91D       ; _SizeWindow
 
-    move.l      (A5),A0     ; return old/new size in D0/D1
-    move.l      (A0),A0
-    move.l      $14(A0),D1
-    clr.w       D0          ; return EQ
-    movem.l     (SP)+,D0    ; preserve D0 flag
+        move.l  (A5),A0     ; return old/new size in D0/D1
+        move.l  (A0),A0
+        move.l  $14(A0),D1
+        clr.w   D0          ; return EQ
+        movem.l (SP)+,D0    ; preserve D0 flag
 .miss
-    rts
+        rts
 
 
 ; WDEF 1 lacks a wGrow routine, so we roll our own for same cosmetic result as when the window is dragged
@@ -372,143 +372,143 @@ RealWDEFHandle  dc.l    0
 FakeWDEFHandle  dc.l    0
 FakeWDEF
 ;FUNCTION MyWindow (varCode: INTEGER; theWindow: WindowPtr; message: INTEGER; param: LONGINT) : LONGINT;
-    cmp.w       #5,8(SP)
-    beq.s       .wGrow
+        cmp.w   #5,8(SP)
+        beq.s   .wGrow
 
-    move.l      RealWDEFHandle,A0   ; Call real WDEF like WMgr would
-    move.l      (A0),D0
-    bne.s       .alreadyLoaded
-    move.l      A0,-(SP)
-    move.l      A0,-(SP)
-    dc.w        $A9A2               ; _LoadResource
-    move.l      (SP)+,A0
+        move.l  RealWDEFHandle,A0   ; Call real WDEF like WMgr would
+        move.l  (A0),D0
+        bne.s   .alreadyLoaded
+        move.l  A0,-(SP)
+        move.l  A0,-(SP)
+        dc.w    $A9A2               ; _LoadResource
+        move.l  (SP)+,A0
 .alreadyLoaded
-    move.l      A0,-(SP)
-    dc.w        $A029               ; _HLock (WMgr will eventually undo this)
-    move.l      (SP)+,A0
-    move.l      (A0),A0
-    jmp         (A0)
+        move.l  A0,-(SP)
+        dc.w    $A029               ; _HLock (WMgr will eventually undo this)
+        move.l  (SP)+,A0
+        move.l  (A0),A0
+        jmp     (A0)
 
 .wGrow ;
-    move.l      4(SP),A0            ; "param" = recommended rect pointer
-    move.l      4(A0),-(SP)         ; copy to the stack
-    move.l      (A0),-(SP)
-    sub.w       #19,(SP)            ; adjust rect to frame the chrome
-    sub.w       #1,2(SP)
-    add.w       #1,4(SP)
-    add.w       #1,6(SP)
-    move.l      SP,-(SP)
-    move.l      #16*$00010001,-(SP) ; oval
-    dc.w        $A8B0               ; _FrameRoundRect: same as _DragGrayRgn!
-    addq        #8,SP               ; pop our scratch rect
+        move.l  4(SP),A0            ; "param" = recommended rect pointer
+        move.l  4(A0),-(SP)         ; copy to the stack
+        move.l  (A0),-(SP)
+        sub.w   #19,(SP)            ; adjust rect to frame the chrome
+        sub.w   #1,2(SP)
+        add.w   #1,4(SP)
+        add.w   #1,6(SP)
+        move.l  SP,-(SP)
+        move.l  #16*$00010001,-(SP) ; oval
+        dc.w    $A8B0               ; _FrameRoundRect: same as _DragGrayRgn!
+        addq    #8,SP               ; pop our scratch rect
 
-    move.l      (SP)+,A0            ; return
-    add         #12,SP
-    clr.l       (SP)
-    jmp         (A0)
+        move.l  (SP)+,A0            ; return
+        add     #12,SP
+        clr.l   (SP)
+        jmp     (A0)
 
 
 DrawFakeGrowBox ; fun little routine
 kgbcnt equ 3
-    move.l      (A5),A0
-    move.l      (A0),A0
-    move.l      $14(A0),-(SP)      ; bottom/right of portRect
-    sub.l       #$00080004,(SP)
-    dc.w        $A893           ; _MoveTo
-    moveq.l     #2-1,D4
+        move.l  (A5),A0
+        move.l  (A0),A0
+        move.l  $14(A0),-(SP)      ; bottom/right of portRect
+        sub.l   #$00080004,(SP)
+        dc.w    $A893           ; _MoveTo
+        moveq.l #2-1,D4
 .loop
-    move.l      #$0004FFFC,-(SP) ; lower left to upper right of stripe
-    dc.w        $A892           ; _Line
-    move.l      #$FFFA0002,-(SP) ; upper right of this to lower left of next
-    dc.w        $A894           ; _Move
-    dbra        D4,.loop
+        move.l  #$0004FFFC,-(SP) ; lower left to upper right of stripe
+        dc.w    $A892           ; _Line
+        move.l  #$FFFA0002,-(SP) ; upper right of this to lower left of next
+        dc.w    $A894           ; _Move
+        dbra    D4,.loop
 
-    rts
+        rts
 
 
 MoveWindowControls ; takes old/new size in D0/D1
-    bsr         SubPt
-    move.l      D1,D3       ; keep delta safe because we use it a lot
+        bsr     SubPt
+        move.l  D1,D3       ; keep delta safe because we use it a lot
 
-    move.l      (A5),A2
-    move.l      (A2),A2     ; A2 is window
+        move.l  (A5),A2
+        move.l  (A2),A2     ; A2 is window
 
-    ; Erase everything below the list
-    move.l      $98(A2),A3  ; list handle as ever is in window refcon
-    move.l      (A3),A0
-    move.l      $14(A2),-(SP) ; botRight of window
-    clr.w       -(SP)       ; left of window
-    move.w      4(A0),-(SP) ; bottom of list
-    move.l      SP,-(SP)
-    dc.w        $A8A3       ; _EraseRect
-    addq        #8,SP
+        ; Erase everything below the list
+        move.l  $98(A2),A3  ; list handle as ever is in window refcon
+        move.l  (A3),A0
+        move.l  $14(A2),-(SP) ; botRight of window
+        clr.w   -(SP)       ; left of window
+        move.w  4(A0),-(SP) ; bottom of list
+        move.l  SP,-(SP)
+        dc.w    $A8A3       ; _EraseRect
+        addq    #8,SP
 
-    ; Adjust the list
-    move.l      $98(A2),A3  ; list handle as ever is in window refcon
-    move.l      (A3),A0
-    move.l      4(A0),D1    ; current size field
-    move.l      D3,D0       ; delta size
-    bsr         AddPt
-    move.l      D1,-(SP)    ; listWidth/listHeight args to LSize
-    move.l      A3,-(SP)    ; lHandle
-    move.w      #96,-(SP)
-    dc.w        $A9E7       ; _LSize
+        ; Adjust the list
+        move.l  $98(A2),A3  ; list handle as ever is in window refcon
+        move.l  (A3),A0
+        move.l  4(A0),D1    ; current size field
+        move.l  D3,D0       ; delta size
+        bsr     AddPt
+        move.l  D1,-(SP)    ; listWidth/listHeight args to LSize
+        move.l  A3,-(SP)    ; lHandle
+        move.w  #96,-(SP)
+        dc.w    $A9E7       ; _LSize
 
-    ; Move the buttons (what a pain!)
-    move.l      $8C(A2),D0      ; handle to first control
+        ; Move the buttons (what a pain!)
+        move.l  $8C(A2),D0      ; handle to first control
 .ctlLoop
-    beq.s       .doneControls
-    move.l      D0,A3
-    move.l      A3,D2
-    move.l      (A3),A3         ; deref the handle
+        beq.s   .doneControls
+        move.l  D0,A3
+        move.l  A3,D2
+        move.l  (A3),A3         ; deref the handle
 
-    tst.b       $28(A3)
-    beq.s       .skipControl
+        tst.b   $28(A3)
+        beq.s   .skipControl
 
-    move.l      D3,D0
-    btst.b      #7,$24(A3)      ; test high bit of refCon
-    bne.s       .doHorizontalMove
-    clr.w       D0
+        move.l  D3,D0
+        btst.b  #7,$24(A3)      ; test high bit of refCon
+        bne.s   .doHorizontalMove
+        clr.w   D0
 .doHorizontalMove
 
-    move.l      8(A3),D1        ; current topLeft of control
-    bsr         AddPt
-    move.l      D1,8(A3)
-    move.l      12(A3),D1       ; current botRight of control
-    bsr         AddPt
-    move.l      D1,12(A3)
+        move.l  8(A3),D1        ; current topLeft of control
+        bsr     AddPt
+        move.l  D1,8(A3)
+        move.l  12(A3),D1       ; current botRight of control
+        bsr     AddPt
+        move.l  D1,12(A3)
 
 .skipControl
-    move.l      (A3),D0         ; get next control handle
-    bra.s       .ctlLoop
+        move.l  (A3),D0         ; get next control handle
+        bra.s   .ctlLoop
 .doneControls
 
-    move.l      A2,-(SP)
-    dc.w        $A969 ; _DrawControls
+        move.l  A2,-(SP)
+        dc.w    $A969 ; _DrawControls
 
-    bsr         DrawFakeGrowBox
+        bsr     DrawFakeGrowBox
 
-    rts
+        rts
 
 
 AddPt ; adds D0 to D1, preserving D0
-    add.w   D0,D1
-    swap    D0
-    swap    D1
-    add.w   D0,D1
-    swap    D0
-    swap    D1
-    rts
+        add.w   D0,D1
+        swap    D0
+        swap    D1
+        add.w   D0,D1
+        swap    D0
+        swap    D1
+        rts
 
 
 SubPt ; subtracts D0 from D1, preserving D0
-    sub.w   D0,D1
-    swap    D0
-    swap    D1
-    sub.w   D0,D1
-    swap    D0
-    swap    D1
-    rts
+        sub.w   D0,D1
+        swap    D0
+        swap    D1
+        sub.w   D0,D1
+        swap    D0
+        swap    D1
+        rts
 
 
 ***************************** CONTROLS ****************************
@@ -524,165 +524,165 @@ DiskBtnTitle    dc.b    10, 'Make Disk', 201, 0
 
 
 OpenBtn
-    link        A6,#0
-    bsr         GetFile
-    tst.b       (SP)
-    beq         .cancelOpen
+        link    A6,#0
+        bsr     GetFile
+        tst.b   (SP)
+        beq     .cancelOpen
 
-    sub         #50,SP          ; push IOPB for Open
-    lea         50+10(SP),A0    ; SFReply.fName...
-    move.l      A0,18(SP)       ;              ...IONamePtr
-    move.w      50+6(SP),22(SP) ; SFReply.vRefNum...IOVRefNum
-    clr.b       17(SP)          ; IOPermssn
-    move.l      SP,A0
-    dc.w        $A000 ; _Open
-    tst.w       16(SP)
-    bne         .cancelOpen     ; maybe we should complain louder?
+        sub     #50,SP          ; push IOPB for Open
+        lea     50+10(SP),A0    ; SFReply.fName...
+        move.l  A0,18(SP)       ;              ...IONamePtr
+        move.w  50+6(SP),22(SP) ; SFReply.vRefNum...IOVRefNum
+        clr.b   17(SP)          ; IOPermssn
+        move.l  SP,A0
+        dc.w    $A000 ; _Open
+        tst.w   16(SP)
+        bne     .cancelOpen     ; maybe we should complain louder?
 
-    ; Create and fill a new queue entry
-    clr.l       D0
-    move.b      50+10(SP),D0
-    add.l       #feFileName+1,D0
-    dc.w        $A71E           ; _NewPtrSysClear
-    move.l      A0,D0
-    beq.s       .cancelOpen
-    move.w      24(SP),feRefNum(A0) ; IORefNum...feRefNum
-    move.b      17(SP),fePermssn(A0) ; IOPermssn...fePermssn
-    moveq.l     #1,D0
-    add.b       50+10(SP),D0
-    lea         feFileName(A0),A1
-    lea         50+10(SP),A0
-    dc.w        $A22E           ; _BlockMoveData the name
-    lea         -feFileName(A1),A0 ; hack to get our register back
-    move.l      A0,A2
+        ; Create and fill a new queue entry
+        clr.l   D0
+        move.b  50+10(SP),D0
+        add.l   #feFileName+1,D0
+        dc.w    $A71E           ; _NewPtrSysClear
+        move.l  A0,D0
+        beq.s   .cancelOpen
+        move.w  24(SP),feRefNum(A0) ; IORefNum...feRefNum
+        move.b  17(SP),fePermssn(A0) ; IOPermssn...fePermssn
+        moveq.l #1,D0
+        add.b   50+10(SP),D0
+        lea     feFileName(A0),A1
+        lea     50+10(SP),A0
+        dc.w    $A22E           ; _BlockMoveData the name
+        lea     -feFileName(A1),A0 ; hack to get our register back
+        move.l  A0,A2
 
-    ; And append it to the interrupt-time-accessible queue
-    move.l      gBackendQHdr,A1
-    dc.w        $A96F           ; _Enqueue
+        ; And append it to the interrupt-time-accessible queue
+        move.l  gBackendQHdr,A1
+        dc.w    $A96F           ; _Enqueue
 
-    ; Append the entry to the list
-    subq        #2,SP
-    move.w      #1,-(SP)            ; one row
-    move.w      #$7FFF,-(SP)        ; beyond current bounds
-    move.l      (A5),A0
-    move.l      (A0),A0             ; window/grafport
-    move.l      $98(A0),-(SP)       ; lHandle = window refCon
-    move.w      #8,-(SP)
-    dc.w        $A9E7               ; _LAddRow
-    move.w      (SP)+,feListRow(A2)
+        ; Append the entry to the list
+        subq    #2,SP
+        move.w  #1,-(SP)            ; one row
+        move.w  #$7FFF,-(SP)        ; beyond current bounds
+        move.l  (A5),A0
+        move.l  (A0),A0             ; window/grafport
+        move.l  $98(A0),-(SP)       ; lHandle = window refCon
+        move.w  #8,-(SP)
+        dc.w    $A9E7               ; _LAddRow
+        move.w  (SP)+,feListRow(A2)
 
-    ; And make that the string of the entry
-    pea         feFileName+1(A2)    ; dataPtr
-    moveq.l     #0,D0
-    move.b      feFileName(A2),D0
-    move.w      D0,-(SP)            ; dataLen
-    move.w      #0,-(SP)            ; cell column
-    move.w      feListRow(A2),-(SP) ; cell row
-    move.l      (A5),A0
-    move.l      (A0),A0             ; window/grafport handle
-    move.l      $98(A0),-(SP)       ; lHandle = window refCon
-    move.w      #88,-(SP)
-    dc.w        $A9E7               ; _LSetCell
+        ; And make that the string of the entry
+        pea     feFileName+1(A2)    ; dataPtr
+        moveq.l #0,D0
+        move.b  feFileName(A2),D0
+        move.w  D0,-(SP)            ; dataLen
+        move.w  #0,-(SP)            ; cell column
+        move.w  feListRow(A2),-(SP) ; cell row
+        move.l  (A5),A0
+        move.l  (A0),A0             ; window/grafport handle
+        move.l  $98(A0),-(SP)       ; lHandle = window refCon
+        move.w  #88,-(SP)
+        dc.w    $A9E7               ; _LSetCell
 
 .cancelOpen
-    unlk        A6
-    rts
+        unlk    A6
+        rts
 
 
 CloseBtn
-    clr.l   -(SP)           ; space for selected cell
-    clr.w   -(SP)           ; result (boolean, so clear to be safe)
-    st      -(SP)           ; next (true means find next selected cell)
-    pea     4(SP)           ; addr of some stack space to return row
-    move.l  (A5),A0
-    move.l  (A0),A0         ; window/grafport
-    move.l  $98(A0),-(SP)   ; lHandle = window refCon
-    move.w  #60,-(SP)
-    dc.w    $A9E7           ; _LGetSelect
-    move.w  (SP)+,D0
-    movem.l (SP)+,D0
-    beq     .macsAreConnected ; stop us crashing if nothing selected
-    swap    D0              ; rownum
+        clr.l   -(SP)           ; space for selected cell
+        clr.w   -(SP)           ; result (boolean, so clear to be safe)
+        st      -(SP)           ; next (true means find next selected cell)
+        pea     4(SP)           ; addr of some stack space to return row
+        move.l  (A5),A0
+        move.l  (A0),A0         ; window/grafport
+        move.l  $98(A0),-(SP)   ; lHandle = window refCon
+        move.w  #60,-(SP)
+        dc.w    $A9E7           ; _LGetSelect
+        move.w  (SP)+,D0
+        movem.l (SP)+,D0
+        beq     .macsAreConnected ; stop us crashing if nothing selected
+        swap    D0              ; rownum
 
-    move.l  gBackendQHdr,A0
-    lea     .findElementMatchingRow,A1
-    bsr     QueueForEach ; will leave element in A0
+        move.l  gBackendQHdr,A0
+        lea     .findElementMatchingRow,A1
+        bsr     QueueForEach ; will leave element in A0
 
-    tst.w   feConnCnt(A0)
-    bne     .macsAreConnected
+        tst.w   feConnCnt(A0)
+        bne     .macsAreConnected
 
-    movem.l A0/D0,-(SP)
-    move.l  gBackendQHdr,A1
-    dc.w    $A96E           ; _Dequeue (A0=el, A1=hdr)
+        movem.l A0/D0,-(SP)
+        move.l  gBackendQHdr,A1
+        dc.w    $A96E           ; _Dequeue (A0=el, A1=hdr)
 
-    movem.l (SP),A0/D0
-    sub     #50,SP
-    move.w  feRefNum(A0),24(SP) ; set ioRefNum
-    move.l  SP,A0
-    dc.w    $A001           ; _Close
-    add     #50,SP
+        movem.l (SP),A0/D0
+        sub     #50,SP
+        move.w  feRefNum(A0),24(SP) ; set ioRefNum
+        move.l  SP,A0
+        dc.w    $A001           ; _Close
+        add     #50,SP
 
-    movem.l (SP),A0/D0
-    dc.w    $A01F           ; _DisposPtr (A0=el)
+        movem.l (SP),A0/D0
+        dc.w    $A01F           ; _DisposPtr (A0=el)
 
-    movem.l (SP),A0/D0
-    move.l  gBackendQHdr,A0
-    lea     .decrementElementsGreaterThanRow,A1
-    bsr     QueueForEach    ; (D0=rownum))
+        movem.l (SP),A0/D0
+        move.l  gBackendQHdr,A0
+        lea     .decrementElementsGreaterThanRow,A1
+        bsr     QueueForEach    ; (D0=rownum))
 
-    movem.l (SP),A0/D0
-    subq    #8,SP           ; room for the rect
-    move.l  SP,-(SP)        ; rect ptr
-    swap    D0
-    move.l  D0,-(SP)        ; cell
-    move.l  (A5),A0
-    move.l  (A0),A0         ; window/grafport
-    move.l  $98(A0),-(SP)   ; lHandle = window refCon
-    move.w  #76,-(SP)
-    dc.w    $A9E7           ; _LRect
-    movem.l (SP)+,D0/D1     ; pop the result rect into registers
+        movem.l (SP),A0/D0
+        subq    #8,SP           ; room for the rect
+        move.l  SP,-(SP)        ; rect ptr
+        swap    D0
+        move.l  D0,-(SP)        ; cell
+        move.l  (A5),A0
+        move.l  (A0),A0         ; window/grafport
+        move.l  $98(A0),-(SP)   ; lHandle = window refCon
+        move.w  #76,-(SP)
+        dc.w    $A9E7           ; _LRect
+        movem.l (SP)+,D0/D1     ; pop the result rect into registers
 
-    bsr     AddPt           ; find the central point of the rect, offset a bit
-    asr.w   #1,D1
-    sub.w   #16,D1
-    swap    D1
-    asr.w   #1,D1
-    sub.w   #16,D1
-    swap    D1
+        bsr     AddPt           ; find the central point of the rect, offset a bit
+        asr.w   #1,D1
+        sub.w   #16,D1
+        swap    D1
+        asr.w   #1,D1
+        sub.w   #16,D1
+        swap    D1
 
-    move.l  D1,-(SP)        ; and save that rect
-    move.l  SP,-(SP)
-    dc.w    $A870           ; _LocalToGlobal
-    move.l  (SP)+,D3        ; okayish way to keep it?
+        move.l  D1,-(SP)        ; and save that rect
+        move.l  SP,-(SP)
+        dc.w    $A870           ; _LocalToGlobal
+        move.l  (SP)+,D3        ; okayish way to keep it?
 
-    movem.l (SP)+,A0/D0
-    move.w  #1,-(SP)        ; count
-    move.w  D0,-(SP)        ; rowNum
-    move.l  (A5),A0
-    move.l  (A0),A0         ; window/grafport
-    move.l  $98(A0),-(SP)   ; lHandle = window refCon
-    move.w  #36,-(SP)
-    dc.w    $A9E7           ; _LDelRow
+        movem.l (SP)+,A0/D0
+        move.w  #1,-(SP)        ; count
+        move.w  D0,-(SP)        ; rowNum
+        move.l  (A5),A0
+        move.l  (A0),A0         ; window/grafport
+        move.l  $98(A0),-(SP)   ; lHandle = window refCon
+        move.w  #36,-(SP)
+        dc.w    $A9E7           ; _LDelRow
 
-    move.l  D3,D0
-    movem.l D3-D7/A2-A4,-(SP)
-    bsr     Poof
-    movem.l (SP)+,D3-D7/A2-A4
+        move.l  D3,D0
+        movem.l D3-D7/A2-A4,-(SP)
+        bsr     Poof
+        movem.l (SP)+,D3-D7/A2-A4
 
 .macsAreConnected ; Can't delete it
-    rts
+        rts
 
 .findElementMatchingRow ; callback for QueueForEach
-    cmp.w   feListRow(A0),D0
-    bne.s   .searchContinue
-    addq    #4,SP           ; cancel the loop
+        cmp.w   feListRow(A0),D0
+        bne.s   .searchContinue
+        addq    #4,SP           ; cancel the loop
 .searchContinue
-    rts
+        rts
 
 .decrementElementsGreaterThanRow ; callback for QueueForEach
-    cmp.w   feListRow(A0),D0
-    bhi.s   .noDecrement
-    sub.w   #1,feListRow(A0)
+        cmp.w   feListRow(A0),D0
+        bhi.s   .noDecrement
+        sub.w   #1,feListRow(A0)
 .noDecrement
 rts
 
@@ -691,17 +691,17 @@ DiskBtn rts
 
 
 QueueForEach ; A0 = pointer to q header, A1 = func, preserves ALL other registers
-    addq    #2,A0
+        addq    #2,A0
 .loop
-    move.l  (A0),-(SP)  ; saves us from wasting a data register
-    tst.l   (SP)
-    beq.s   .exit
-    move.l  (SP)+,A0
-    jsr     (A1)
-    bra.s   .loop
+        move.l  (A0),-(SP)  ; saves us from wasting a data register
+        tst.l   (SP)
+        beq.s   .exit
+        move.l  (SP)+,A0
+        jsr     (A1)
+        bra.s   .loop
 .exit
-    addq    #4,SP
-    rts
+        addq    #4,SP
+        rts
 
 
 ******************************* DATA AREA **********************************
@@ -713,530 +713,530 @@ theList     DC.W    0,0,kWinH-24,kWinW-15           ; list top,left,bottom,right
 listBounds  DC.W    0,0,0,1
 
 theFontInputRecord
-            dc.w    1           ; family
-            dc.w    0           ; size
-            dc.b    0           ; face/style
-            dc.b    1           ; needBits
-            dc.w    0           ; device
-            dc.w    1,1         ; scale numerator
-            dc.w    1,1         ; scale denominator
+        dc.w    1           ; family
+        dc.w    0           ; size
+        dc.b    0           ; face/style
+        dc.b    1           ; needBits
+        dc.w    0           ; device
+        dc.w    1,1         ; scale numerator
+        dc.w    1,1         ; scale denominator
 
 
 GetFile ; push a 74 byte SFReply structure to the stack
-            ; push an SFReply structure
-            sub     #74,SP
-            move.l  74(SP),(SP)         ; return address at top of stack
+        ; push an SFReply structure
+        sub     #74,SP
+        move.l  74(SP),(SP)         ; return address at top of stack
 
 ;PROCEDURE SFGetFile (where: Point; prompt: Str255; fileFilter: ProcPtr;
 ;numTypes: INTEGER; typeList: SFTypeList; dlgHook: ProcPtr; VAR reply:
 ;SFReply);
-            clr.l   -(SP)               ; where (point), default
-            clr.l   -(SP)               ; prompt string
-            clr.l   -(SP)               ; fileFilter
-            move.w   #-1,-(SP)          ; numTypes
-            clr.l   -(SP)               ; typeList
-            clr.l   -(SP)               ; dlgHook
-            pea     26(SP)              ; reply structure
-            move.w  #2,-(SP)            ; SFGetFile selector
-            dc.w    $A9EA               ; _Pack3
+        clr.l   -(SP)               ; where (point), default
+        clr.l   -(SP)               ; prompt string
+        clr.l   -(SP)               ; fileFilter
+        move.w   #-1,-(SP)          ; numTypes
+        clr.l   -(SP)               ; typeList
+        clr.l   -(SP)               ; dlgHook
+        pea     26(SP)              ; reply structure
+        move.w  #2,-(SP)            ; SFGetFile selector
+        dc.w    $A9EA               ; _Pack3
 
-            rts
+        rts
 
 
 InstallAndOpenDriver ; driver pointer is in A0, returns err code in D0
-            movem.l A3-A4/D7,-(SP)
-            move.l  A0,A4 ; keep the driver pointer in A4
+        movem.l A3-A4/D7,-(SP)
+        move.l  A0,A4 ; keep the driver pointer in A4
 
-            ; slightly unorthodox approach...
-            move.l  $11C,A3             ; unit table base
-            clr.l   D7
-            move.w  $1D2,D7             ; unit table length in bytes
-            add.l   D7,D7
-            add.l   D7,D7
+        ; slightly unorthodox approach...
+        move.l  $11C,A3             ; unit table base
+        clr.l   D7
+        move.w  $1D2,D7             ; unit table length in bytes
+        add.l   D7,D7
+        add.l   D7,D7
 
-            tst.l   -4(A3,D7)           ; Extend unit table by 1 slot if needed
-            beq.s   .lastEntryIsFree
-            addq.l  #4,D7
-            move.l  D7,D0
-            dc.w    $A71E               ; _NewPtrSysClear (new one)
-            move.l  A0,A1
-            move.l  A3,A0
-            move.l  D7,D0
-            subq.l  #4,D0
-            dc.w    $A22E               ; _BlockMoveData (old to new)
-            move.l  A1,A3
-            move.l  A1,$11C
-            add.w   #1,$1D2
-            dc.w    $A01F               ; _DisposPtr (old)
+        tst.l   -4(A3,D7)           ; Extend unit table by 1 slot if needed
+        beq.s   .lastEntryIsFree
+        addq.l  #4,D7
+        move.l  D7,D0
+        dc.w    $A71E               ; _NewPtrSysClear (new one)
+        move.l  A0,A1
+        move.l  A3,A0
+        move.l  D7,D0
+        subq.l  #4,D0
+        dc.w    $A22E               ; _BlockMoveData (old to new)
+        move.l  A1,A3
+        move.l  A1,$11C
+        add.w   #1,$1D2
+        dc.w    $A01F               ; _DisposPtr (old)
 .lastEntryIsFree
 
-            move.l  A4,A0
-            move.w  $1D2,D0
-            neg.w   D0                  ; -(lenUT) = refnum highest slot
-            dc.w    $A43D               ; _DrvrInstall ReserveMem
+        move.l  A4,A0
+        move.w  $1D2,D0
+        neg.w   D0                  ; -(lenUT) = refnum highest slot
+        dc.w    $A43D               ; _DrvrInstall ReserveMem
 
-            move.l  -4(A3,D7),A0        ; We need to populate this ourselves
-            move.l  (A0),A0
-            move.l  A4,(A0)             ; set dCtlDriver pointer
-            move.w  (A4),4(A0)          ; drvrFlags to dCtlFlags
-            move.w  2(A4),$22(A0)       ; drvrDelay to dCtlDelay
-            move.w  4(A4),$24(A0)       ; drvrEMask to dCtlEMask
-            move.w  6(A4),$26(A0)       ; drvrMenu to dCtlMenu
+        move.l  -4(A3,D7),A0        ; We need to populate this ourselves
+        move.l  (A0),A0
+        move.l  A4,(A0)             ; set dCtlDriver pointer
+        move.w  (A4),4(A0)          ; drvrFlags to dCtlFlags
+        move.w  2(A4),$22(A0)       ; drvrDelay to dCtlDelay
+        move.w  4(A4),$24(A0)       ; drvrEMask to dCtlEMask
+        move.w  6(A4),$26(A0)       ; drvrMenu to dCtlMenu
 
-    ; Open the driver
-            sub     #$32,SP
-            move.l  SP,A0
-            clr.b   $1B(A0)             ; IOPermssn = whatever is allowed
-            pea     $12(A4)             ; IOFileName = directly from the DRVR
-            move.l  (SP)+,$12(A0)
-            dc.w    $A000               ; _Open
-            move.w  $10(A0),D0          ; return result
-            add     #$32,SP
+        ; Open the driver
+        sub     #$32,SP
+        move.l  SP,A0
+        clr.b   $1B(A0)             ; IOPermssn = whatever is allowed
+        pea     $12(A4)             ; IOFileName = directly from the DRVR
+        move.l  (SP)+,$12(A0)
+        dc.w    $A000               ; _Open
+        move.w  $10(A0),D0          ; return result
+        add     #$32,SP
 
-            movem.l (SP)+,A3-A4/D7
-            rts
+        movem.l (SP)+,A3-A4/D7
+        rts
 
 
 Poof ; animation, takes D0, ONLY WORKS WITH BASIC QD!
-            link    A6,#-0
+        link    A6,#-0
 
-            cmp.w   #$3fff,$28E         ; non-color qd ONLY! (so far)
-            ble     .return
+        cmp.w   #$3fff,$28E         ; non-color qd ONLY! (so far)
+        ble     .return
 
-            move.l  D0,-(SP)            ; D3 = screen rect
-            add.l   #$00200020,(SP)
-            move.l  D0,-(SP)
-            move.l  SP,D3
+        move.l  D0,-(SP)            ; D3 = screen rect
+        add.l   #$00200020,(SP)
+        move.l  D0,-(SP)
+        move.l  SP,D3
 
-            move.l  #$00200020,-(SP)    ; D4 = bitmap rect (0,0,32,32)
-            clr.l   -(SP)
-            move.l  SP,D4
+        move.l  #$00200020,-(SP)    ; D4 = bitmap rect (0,0,32,32)
+        clr.l   -(SP)
+        move.l  SP,D4
 
-            bsr     PushBitmapToStack   ; D5 = "save screen" bitmap
-            move.l  SP,D5
+        bsr     PushBitmapToStack   ; D5 = "save screen" bitmap
+        move.l  SP,D5
 
-            bsr     PushBitmapToStack   ; D6 = "scratch" bitmap
-            move.l  SP,D6
+        bsr     PushBitmapToStack   ; D6 = "scratch" bitmap
+        move.l  SP,D6
 
-                                        ; A3 = "artwork" bitmap (changeable)
-            move.l  #$00200020,-(SP)        ; bounds.botRight
-            clr.l   -(SP)                   ; bounds.topLeft
-            move.w  #4,-(SP)                ; rowBytes
-            subq    #4,SP                   ; baseAddr!!!
-            move.l  SP,A3
+        ; A3 = "artwork" bitmap (changeable)
+        move.l  #$00200020,-(SP)        ; bounds.botRight
+        clr.l   -(SP)                   ; bounds.topLeft
+        move.w  #4,-(SP)                ; rowBytes
+        subq    #4,SP                   ; baseAddr!!!
+        move.l  SP,A3
 
-                                        ; A4 = screenBits bitmap
-            move.l  (A5),A4                 ; QD globals
-            lea     -122(A4),A4
+        ; A4 = screenBits bitmap
+        move.l  (A5),A4                 ; QD globals
+        lea     -122(A4),A4
 
-            move.l  A4,-(SP)            ; srcBits = screenBits
-            move.l  D5,-(SP)            ; dstBits = "save screen" bitmap
-            move.l  D3,-(SP)            ; srcRect = screen rect
-            move.l  D4,-(SP)            ; dstRect = bitmap rect
-            clr.w   -(SP)               ; mode = srcCopy
-            clr.l   -(SP)               ; no maskRgn
-            dc.w    $A8EC               ; _CopyBits
+        move.l  A4,-(SP)            ; srcBits = screenBits
+        move.l  D5,-(SP)            ; dstBits = "save screen" bitmap
+        move.l  D3,-(SP)            ; srcRect = screen rect
+        move.l  D4,-(SP)            ; dstRect = bitmap rect
+        clr.w   -(SP)               ; mode = srcCopy
+        clr.l   -(SP)               ; no maskRgn
+        dc.w    $A8EC               ; _CopyBits
 
 
-            clr.l   D7                  ; animation loop counter
-            move.l  $16A,A2             ; and tick counter
+        clr.l   D7                  ; animation loop counter
+        move.l  $16A,A2             ; and tick counter
 .loop
-            cmp.l   #(PoofDataEnd-PoofData)/256+1,D7 ; drawn all frames and cleaned up?
-            beq.s   .return
+        cmp.l   #(PoofDataEnd-PoofData)/256+1,D7 ; drawn all frames and cleaned up?
+        beq.s   .return
 
-            tst.l   D7                  ; delay -- but not before the first frame
-            beq.s   .dontwait
-            addq.l  #3,A2
+        tst.l   D7                  ; delay -- but not before the first frame
+        beq.s   .dontwait
+        addq.l  #3,A2
 .waitloop   cmp.l   $16A,A2
-            bhi.s   .waitloop
+        bhi.s   .waitloop
 .dontwait
 
-                                    ; Copy the background to the scratch buffer
-            move.l  D5,-(SP)            ; srcBits = "save screen" bitmap
-            move.l  D6,-(SP)            ; dstBits = "scratch" bitmap
-            move.l  D4,-(SP)            ; srcRect = bitmap rect
-            move.l  D4,-(SP)            ; dstRect = bitmap rect
-            clr.w   -(SP)               ; mode = srcCopy
-            clr.l   -(SP)               ; no maskRgn
-            dc.w    $A8EC               ; _CopyBits
+        ; Copy the background to the scratch buffer
+        move.l  D5,-(SP)            ; srcBits = "save screen" bitmap
+        move.l  D6,-(SP)            ; dstBits = "scratch" bitmap
+        move.l  D4,-(SP)            ; srcRect = bitmap rect
+        move.l  D4,-(SP)            ; dstRect = bitmap rect
+        clr.w   -(SP)               ; mode = srcCopy
+        clr.l   -(SP)               ; no maskRgn
+        dc.w    $A8EC               ; _CopyBits
 
-            cmp.l   #5,D7
-            beq.s   .erasePoof
+        cmp.l   #5,D7
+        beq.s   .erasePoof
 
-            lsl.l   #7,D7
-            lea     PoofData,A0
-            add.l   #(PoofDataEnd-PoofData)/2,A0
-            add.l   D7,A0
-            move.l  A0,(A3)
+        lsl.l   #7,D7
+        lea     PoofData,A0
+        add.l   #(PoofDataEnd-PoofData)/2,A0
+        add.l   D7,A0
+        move.l  A0,(A3)
 
-                                    ; Apply the mask
-            move.l  A3,-(SP)            ; srcBits = "artwork" bitmap
-            move.l  D6,-(SP)            ; dstBits = "scratch" bitmap
-            move.l  D4,-(SP)            ; srcRect = bitmap rect
-            move.l  D4,-(SP)            ; dstRect = bitmap rect
-            move.w  #3,-(SP)            ; mode = srcBic (erase)
-            clr.l   -(SP)               ; no maskRgn
-            dc.w    $A8EC               ; _CopyBits
+        ; Apply the mask
+        move.l  A3,-(SP)            ; srcBits = "artwork" bitmap
+        move.l  D6,-(SP)            ; dstBits = "scratch" bitmap
+        move.l  D4,-(SP)            ; srcRect = bitmap rect
+        move.l  D4,-(SP)            ; dstRect = bitmap rect
+        move.w  #3,-(SP)            ; mode = srcBic (erase)
+        clr.l   -(SP)               ; no maskRgn
+        dc.w    $A8EC               ; _CopyBits
 
-            lea     PoofData,A0
-            add.l   D7,A0
-            move.l  A0,(A3)
-            lsr.l   #7,D7
+        lea     PoofData,A0
+        add.l   D7,A0
+        move.l  A0,(A3)
+        lsr.l   #7,D7
 
-                                    ; Apply the image itself
-            move.l  A3,-(SP)            ; srcBits = "artwork" bitmap
-            move.l  D6,-(SP)            ; dstBits = "scratch" bitmap
-            move.l  D4,-(SP)            ; srcRect = bitmap rect
-            move.l  D4,-(SP)            ; dstRect = bitmap rect
-            move.w  #1,-(SP)            ; mode = srcOr
-            clr.l   -(SP)               ; no maskRgn
-            dc.w    $A8EC               ; _CopyBits
+        ; Apply the image itself
+        move.l  A3,-(SP)            ; srcBits = "artwork" bitmap
+        move.l  D6,-(SP)            ; dstBits = "scratch" bitmap
+        move.l  D4,-(SP)            ; srcRect = bitmap rect
+        move.l  D4,-(SP)            ; dstRect = bitmap rect
+        move.w  #1,-(SP)            ; mode = srcOr
+        clr.l   -(SP)               ; no maskRgn
+        dc.w    $A8EC               ; _CopyBits
 
 .erasePoof                          ; Draw the scratch buffer to the screen
-            move.l  D6,-(SP)            ; srcBits = "scratch" bitmap
-            move.l  A4,-(SP)            ; dstBits = screenBits
-            move.l  D4,-(SP)            ; srcRect = bitmap rect
-            move.l  D3,-(SP)            ; dstRect = screen rect
-            clr.w   -(SP)               ; mode = srcCopy
-            clr.l   -(SP)               ; no maskRgn
-            dc.w    $A8EC               ; _CopyBits
+        move.l  D6,-(SP)            ; srcBits = "scratch" bitmap
+        move.l  A4,-(SP)            ; dstBits = screenBits
+        move.l  D4,-(SP)            ; srcRect = bitmap rect
+        move.l  D3,-(SP)            ; dstRect = screen rect
+        clr.w   -(SP)               ; mode = srcCopy
+        clr.l   -(SP)               ; no maskRgn
+        dc.w    $A8EC               ; _CopyBits
 
-            addq.l  #1,D7
-            bra.s   .loop
+        addq.l  #1,D7
+        bra.s   .loop
 .return
-            unlk    A6
-            rts
+        unlk    A6
+        rts
 
 
 PushBitmapToStack ; assumes 32x32, leaves bitmap structure on stack
-            move.l  (SP)+,A0
-            sub     #32*32/8,SP             ; the actual data
-            move.l  #$00200020,-(SP)        ; bounds.botRight
-            clr.l   -(SP)                   ; bounds.topLeft
-            move.w  #32/8,-(SP)             ; rowBytes
-            pea     10(SP)                  ; baseAddr
-            jmp     (A0)                    ; return
+        move.l  (SP)+,A0
+        sub     #32*32/8,SP             ; the actual data
+        move.l  #$00200020,-(SP)        ; bounds.botRight
+        clr.l   -(SP)                   ; bounds.topLeft
+        move.w  #32/8,-(SP)             ; rowBytes
+        pea     10(SP)                  ; baseAddr
+        jmp     (A0)                    ; return
 
 
 PoofData ; icons followed by masks
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000001111100000000000
-            dc.l    %00000000000000110000011000000000
-            dc.l    %00000000011110100000000100000000
-            dc.l    %00001111100001101101011010000000
-            dc.l    %00010000100000010010101001111000
-            dc.l    %00100000000000100000000010001100
-            dc.l    %00100000000000100000000010000010
-            dc.l    %00100000000111001111100000000010
-            dc.l    %00100000001000110000010000000001
-            dc.l    %00100000000000100000010000000001
-            dc.l    %01010000000000000000010000000010
-            dc.l    %01010001100000000000010000000010
-            dc.l    %10001110100000000000001000001100
-            dc.l    %10000000100000000000001000000100
-            dc.l    %01000000010000000000001000000010
-            dc.l    %01000000001000000010010000000010
-            dc.l    %01110000001000000010010000000010
-            dc.l    %00010000000110000101100000000100
-            dc.l    %00010010010001111100000001111000
-            dc.l    %00001101100000000000001001000000
-            dc.l    %00001000000000000000001101000000
-            dc.l    %00001000000000000001000101000000
-            dc.l    %00000100010000000110111001000000
-            dc.l    %00000011110000001100000010000000
-            dc.l    %00000001000000001011111100000000
-            dc.l    %00000000111000110000000000000000
-            dc.l    %00000000000111000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000110000011101111000000
-            dc.l    %00000000011001100100010001000000
-            dc.l    %00000000010000101000000001000000
-            dc.l    %00001110100000010000000001100000
-            dc.l    %00010001100000010000100000010000
-            dc.l    %00010000000000101001000110100000
-            dc.l    %00100000111100100110000010010000
-            dc.l    %00010001000101010010000110010000
-            dc.l    %00011000000010010100000001010000
-            dc.l    %00001000100010001000010000100000
-            dc.l    %00001000011100010100001000100000
-            dc.l    %00001011100001100011111111000000
-            dc.l    %00000100100010000000000000000000
-            dc.l    %00001110111110000111100111011000
-            dc.l    %00010001000001001000011000100100
-            dc.l    %00100000000001010000000010001000
-            dc.l    %00100000000000110000001101011000
-            dc.l    %00100100111110010000000001000100
-            dc.l    %00011101001010001000000000100010
-            dc.l    %00100001000000010111000000010010
-            dc.l    %00100001000000100100000000100010
-            dc.l    %00010000100010100100000111001100
-            dc.l    %00001101000100010100000000001000
-            dc.l    %00001001001000010011110000111000
-            dc.l    %00001001110011001000100000100000
-            dc.l    %00001100000100110000010001000000
-            dc.l    %00000011111000000000001110000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000001110000001100000000000
-            dc.l    %00000000001010000010010000000000
-            dc.l    %00000000000110111011010000000000
-            dc.l    %00000000001001000101101100000000
-            dc.l    %00000001110101000010010010000000
-            dc.l    %00000010000110111110100110000000
-            dc.l    %00000010000001000000100001000000
-            dc.l    %00000011100010011110010001010000
-            dc.l    %00000001000110100010010010101000
-            dc.l    %00000001001001000001101101001000
-            dc.l    %00001110110010000010010000110000
-            dc.l    %00010010001110000000001000000000
-            dc.l    %00011110010010001000000100110000
-            dc.l    %00000000100001110000000101001000
-            dc.l    %00001111000001001000000101000100
-            dc.l    %00010010101110000100001001000010
-            dc.l    %00100010010011000111110110111100
-            dc.l    %00010011000001000100001001000000
-            dc.l    %00001100110000111010010001000000
-            dc.l    %00000001101111000001010110100000
-            dc.l    %00000010010001001101010000010000
-            dc.l    %00000100010001010000101000001000
-            dc.l    %00000011100000110111100100001000
-            dc.l    %00000000011100001010010010010000
-            dc.l    %00000000010010000010001001100000
-            dc.l    %00000000010010000001110000000000
-            dc.l    %00000000001100000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000010000000000000000000000
-            dc.l    %00000000011000000000000000000000
-            dc.l    %00000000000001110001000000000000
-            dc.l    %00000000000010001000010000000000
-            dc.l    %00000000000010010000101000000000
-            dc.l    %00000011100001100001001000000000
-            dc.l    %00000100010000000000110010000000
-            dc.l    %00000110001000000000000101000000
-            dc.l    %00000100001001111000110010000000
-            dc.l    %00000100001001000101001000000000
-            dc.l    %00000011010001000010001000000000
-            dc.l    %00000000100001000101110000000000
-            dc.l    %00000010000001101000000000000000
-            dc.l    %00000000000000011111000000000000
-            dc.l    %00000011101110001000100001000000
-            dc.l    %00000100010010001100100100000000
-            dc.l    %00000010100001000111000000000000
-            dc.l    %00000001010001000000111100000000
-            dc.l    %00000000001110000100100010000000
-            dc.l    %00000000000000001010100110000000
-            dc.l    %00000000010010000101011101000000
-            dc.l    %00000000001100001010001000100000
-            dc.l    %00000000000000000100000100100000
-            dc.l    %00000000000010000000000011000000
-            dc.l    %00000000000000000001000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000110000000000000000
-            dc.l    %00000000000001010000001100000000
-            dc.l    %00000000000001100000000100000000
-            dc.l    %00000000000000000000001000000000
-            dc.l    %00000011000000000000000000000000
-            dc.l    %00000000011000000001000000000000
-            dc.l    %00000000100100000010100000000000
-            dc.l    %00000000100101110100010000000000
-            dc.l    %00000000011010001011100000000000
-            dc.l    %00000000000001010000000000000000
-            dc.l    %00000000000000110000000000000000
-            dc.l    %00000000000000101100000000000000
-            dc.l    %00000000000000011000000000000000
-            dc.l    %00000001011100000000000000000000
-            dc.l    %00000000100010000000000000000000
-            dc.l    %00000000100010000000000000000000
-            dc.l    %00000000011010000000000000000000
-            dc.l    %00000000000100000000000010000000
-            dc.l    %00000000010000001100000000000000
-            dc.l    %00000000000000010010000000000000
-            dc.l    %00000000000000001100000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000001111100000000000
-            dc.l    %00000000000000111111111000000000
-            dc.l    %00000000011110111111111100000000
-            dc.l    %00001111111111111111111110000000
-            dc.l    %00011111111111111111111111111000
-            dc.l    %00111111111111111111111111111100
-            dc.l    %00111111111111111111111111111110
-            dc.l    %00111111111111111111111111111110
-            dc.l    %00111111111111111111111111111111
-            dc.l    %00111111111111111111111111111111
-            dc.l    %01111111111111111111111111111110
-            dc.l    %01111111111111111111111111111110
-            dc.l    %11111111111111111111111111111100
-            dc.l    %11111111111111111111111111111100
-            dc.l    %01111111111111111111111111111110
-            dc.l    %01111111111111111111111111111110
-            dc.l    %01111111111111111111111111111110
-            dc.l    %00011111111111111111111111111100
-            dc.l    %00011111111111111111111111111000
-            dc.l    %00001111111111111111111111000000
-            dc.l    %00001111111111111111111111000000
-            dc.l    %00001111111111111111111111000000
-            dc.l    %00000111111111111111111111000000
-            dc.l    %00000011111111111111111110000000
-            dc.l    %00000001111111111011111100000000
-            dc.l    %00000000111111110000000000000000
-            dc.l    %00000000000111000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000110000011101111000000
-            dc.l    %00000000011111100111111111000000
-            dc.l    %00000000011111101111111111000000
-            dc.l    %00001110111111111111111111100000
-            dc.l    %00011111111111111111111111110000
-            dc.l    %00011111111111101111111111100000
-            dc.l    %00111111111111100111111111110000
-            dc.l    %00011111111111110011111111110000
-            dc.l    %00011111111111110111111111110000
-            dc.l    %00001111111111111111111111100000
-            dc.l    %00001111111111110111111111100000
-            dc.l    %00001111111111100011111111000000
-            dc.l    %00000100111110000000000000000000
-            dc.l    %00001110111110000111100111011000
-            dc.l    %00011111111111001111111111111100
-            dc.l    %00111111111111011111111111111000
-            dc.l    %00111111111111111111111111111000
-            dc.l    %00111111111111111111111111111100
-            dc.l    %00011111111111111111111111111110
-            dc.l    %00111111111111110111111111111110
-            dc.l    %00111111111111100111111111111110
-            dc.l    %00011111111111100111111111111100
-            dc.l    %00001111111111110111111111111000
-            dc.l    %00001111111111110011111111111000
-            dc.l    %00001111111111111000111111100000
-            dc.l    %00001111111100110000011111000000
-            dc.l    %00000011111000000000001110000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000001110000001100000000000
-            dc.l    %00000000001110000011110000000000
-            dc.l    %00000000000110111011110000000000
-            dc.l    %00000000001001111101101100000000
-            dc.l    %00000001111101111110011110000000
-            dc.l    %00000011111110111110111110000000
-            dc.l    %00000011111111000000111111000000
-            dc.l    %00000011111110011110011111010000
-            dc.l    %00000001111110111110011110111000
-            dc.l    %00000001111001111111101101111000
-            dc.l    %00001110110011111111110000110000
-            dc.l    %00011110001111111111111000000000
-            dc.l    %00011110011111111111111100110000
-            dc.l    %00000000111111111111111101111000
-            dc.l    %00001111111111001111111101111100
-            dc.l    %00011111111110000111111001111110
-            dc.l    %00111111111111000111110110111100
-            dc.l    %00011111111111000100001111000000
-            dc.l    %00001100111111111110011111000000
-            dc.l    %00000001101111111111011111100000
-            dc.l    %00000011110001111111011111110000
-            dc.l    %00000111110001111111101111111000
-            dc.l    %00000011100000111111100111111000
-            dc.l    %00000000011100001011110011110000
-            dc.l    %00000000011110000011111001100000
-            dc.l    %00000000011110000001110000000000
-            dc.l    %00000000001100000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000010000000000000000000000
-            dc.l    %00000000011000000000000000000000
-            dc.l    %00000000000001110001000000000000
-            dc.l    %00000000000011111000010000000000
-            dc.l    %00000000000011110000111000000000
-            dc.l    %00000011100001100001111000000000
-            dc.l    %00000111110000000000110010000000
-            dc.l    %00000111111000000000000111000000
-            dc.l    %00000111111001111000110010000000
-            dc.l    %00000111111001111101111000000000
-            dc.l    %00000011110001111111111000000000
-            dc.l    %00000000100001111101110000000000
-            dc.l    %00000010000001111000000000000000
-            dc.l    %00000000000000011111000000000000
-            dc.l    %00000011101110001111100001000000
-            dc.l    %00000111111110001111100100000000
-            dc.l    %00000011111111000111000000000000
-            dc.l    %00000001011111000000111100000000
-            dc.l    %00000000001110000100111110000000
-            dc.l    %00000000000000001110111110000000
-            dc.l    %00000000011110000111011111000000
-            dc.l    %00000000001100001110001111100000
-            dc.l    %00000000000000000100000111100000
-            dc.l    %00000000000010000000000011000000
-            dc.l    %00000000000000000001000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000110000000000000000
-            dc.l    %00000000000001110000001100000000
-            dc.l    %00000000000001100000001100000000
-            dc.l    %00000000000000000000001000000000
-            dc.l    %00000011000000000000000000000000
-            dc.l    %00000000011000000001000000000000
-            dc.l    %00000000111100000011100000000000
-            dc.l    %00000000111101110111110000000000
-            dc.l    %00000000011011111011100000000000
-            dc.l    %00000000000001110000000000000000
-            dc.l    %00000000000000110000000000000000
-            dc.l    %00000000000000111100000000000000
-            dc.l    %00000000000000011000000000000000
-            dc.l    %00000001011100000000000000000000
-            dc.l    %00000000111110000000000000000000
-            dc.l    %00000000111110000000000000000000
-            dc.l    %00000000011110000000000000000000
-            dc.l    %00000000000100000000000010000000
-            dc.l    %00000000010000001100000000000000
-            dc.l    %00000000000000011110000000000000
-            dc.l    %00000000000000001100000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
-            dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000001111100000000000
+        dc.l    %00000000000000110000011000000000
+        dc.l    %00000000011110100000000100000000
+        dc.l    %00001111100001101101011010000000
+        dc.l    %00010000100000010010101001111000
+        dc.l    %00100000000000100000000010001100
+        dc.l    %00100000000000100000000010000010
+        dc.l    %00100000000111001111100000000010
+        dc.l    %00100000001000110000010000000001
+        dc.l    %00100000000000100000010000000001
+        dc.l    %01010000000000000000010000000010
+        dc.l    %01010001100000000000010000000010
+        dc.l    %10001110100000000000001000001100
+        dc.l    %10000000100000000000001000000100
+        dc.l    %01000000010000000000001000000010
+        dc.l    %01000000001000000010010000000010
+        dc.l    %01110000001000000010010000000010
+        dc.l    %00010000000110000101100000000100
+        dc.l    %00010010010001111100000001111000
+        dc.l    %00001101100000000000001001000000
+        dc.l    %00001000000000000000001101000000
+        dc.l    %00001000000000000001000101000000
+        dc.l    %00000100010000000110111001000000
+        dc.l    %00000011110000001100000010000000
+        dc.l    %00000001000000001011111100000000
+        dc.l    %00000000111000110000000000000000
+        dc.l    %00000000000111000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000110000011101111000000
+        dc.l    %00000000011001100100010001000000
+        dc.l    %00000000010000101000000001000000
+        dc.l    %00001110100000010000000001100000
+        dc.l    %00010001100000010000100000010000
+        dc.l    %00010000000000101001000110100000
+        dc.l    %00100000111100100110000010010000
+        dc.l    %00010001000101010010000110010000
+        dc.l    %00011000000010010100000001010000
+        dc.l    %00001000100010001000010000100000
+        dc.l    %00001000011100010100001000100000
+        dc.l    %00001011100001100011111111000000
+        dc.l    %00000100100010000000000000000000
+        dc.l    %00001110111110000111100111011000
+        dc.l    %00010001000001001000011000100100
+        dc.l    %00100000000001010000000010001000
+        dc.l    %00100000000000110000001101011000
+        dc.l    %00100100111110010000000001000100
+        dc.l    %00011101001010001000000000100010
+        dc.l    %00100001000000010111000000010010
+        dc.l    %00100001000000100100000000100010
+        dc.l    %00010000100010100100000111001100
+        dc.l    %00001101000100010100000000001000
+        dc.l    %00001001001000010011110000111000
+        dc.l    %00001001110011001000100000100000
+        dc.l    %00001100000100110000010001000000
+        dc.l    %00000011111000000000001110000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000001110000001100000000000
+        dc.l    %00000000001010000010010000000000
+        dc.l    %00000000000110111011010000000000
+        dc.l    %00000000001001000101101100000000
+        dc.l    %00000001110101000010010010000000
+        dc.l    %00000010000110111110100110000000
+        dc.l    %00000010000001000000100001000000
+        dc.l    %00000011100010011110010001010000
+        dc.l    %00000001000110100010010010101000
+        dc.l    %00000001001001000001101101001000
+        dc.l    %00001110110010000010010000110000
+        dc.l    %00010010001110000000001000000000
+        dc.l    %00011110010010001000000100110000
+        dc.l    %00000000100001110000000101001000
+        dc.l    %00001111000001001000000101000100
+        dc.l    %00010010101110000100001001000010
+        dc.l    %00100010010011000111110110111100
+        dc.l    %00010011000001000100001001000000
+        dc.l    %00001100110000111010010001000000
+        dc.l    %00000001101111000001010110100000
+        dc.l    %00000010010001001101010000010000
+        dc.l    %00000100010001010000101000001000
+        dc.l    %00000011100000110111100100001000
+        dc.l    %00000000011100001010010010010000
+        dc.l    %00000000010010000010001001100000
+        dc.l    %00000000010010000001110000000000
+        dc.l    %00000000001100000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000010000000000000000000000
+        dc.l    %00000000011000000000000000000000
+        dc.l    %00000000000001110001000000000000
+        dc.l    %00000000000010001000010000000000
+        dc.l    %00000000000010010000101000000000
+        dc.l    %00000011100001100001001000000000
+        dc.l    %00000100010000000000110010000000
+        dc.l    %00000110001000000000000101000000
+        dc.l    %00000100001001111000110010000000
+        dc.l    %00000100001001000101001000000000
+        dc.l    %00000011010001000010001000000000
+        dc.l    %00000000100001000101110000000000
+        dc.l    %00000010000001101000000000000000
+        dc.l    %00000000000000011111000000000000
+        dc.l    %00000011101110001000100001000000
+        dc.l    %00000100010010001100100100000000
+        dc.l    %00000010100001000111000000000000
+        dc.l    %00000001010001000000111100000000
+        dc.l    %00000000001110000100100010000000
+        dc.l    %00000000000000001010100110000000
+        dc.l    %00000000010010000101011101000000
+        dc.l    %00000000001100001010001000100000
+        dc.l    %00000000000000000100000100100000
+        dc.l    %00000000000010000000000011000000
+        dc.l    %00000000000000000001000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000110000000000000000
+        dc.l    %00000000000001010000001100000000
+        dc.l    %00000000000001100000000100000000
+        dc.l    %00000000000000000000001000000000
+        dc.l    %00000011000000000000000000000000
+        dc.l    %00000000011000000001000000000000
+        dc.l    %00000000100100000010100000000000
+        dc.l    %00000000100101110100010000000000
+        dc.l    %00000000011010001011100000000000
+        dc.l    %00000000000001010000000000000000
+        dc.l    %00000000000000110000000000000000
+        dc.l    %00000000000000101100000000000000
+        dc.l    %00000000000000011000000000000000
+        dc.l    %00000001011100000000000000000000
+        dc.l    %00000000100010000000000000000000
+        dc.l    %00000000100010000000000000000000
+        dc.l    %00000000011010000000000000000000
+        dc.l    %00000000000100000000000010000000
+        dc.l    %00000000010000001100000000000000
+        dc.l    %00000000000000010010000000000000
+        dc.l    %00000000000000001100000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000001111100000000000
+        dc.l    %00000000000000111111111000000000
+        dc.l    %00000000011110111111111100000000
+        dc.l    %00001111111111111111111110000000
+        dc.l    %00011111111111111111111111111000
+        dc.l    %00111111111111111111111111111100
+        dc.l    %00111111111111111111111111111110
+        dc.l    %00111111111111111111111111111110
+        dc.l    %00111111111111111111111111111111
+        dc.l    %00111111111111111111111111111111
+        dc.l    %01111111111111111111111111111110
+        dc.l    %01111111111111111111111111111110
+        dc.l    %11111111111111111111111111111100
+        dc.l    %11111111111111111111111111111100
+        dc.l    %01111111111111111111111111111110
+        dc.l    %01111111111111111111111111111110
+        dc.l    %01111111111111111111111111111110
+        dc.l    %00011111111111111111111111111100
+        dc.l    %00011111111111111111111111111000
+        dc.l    %00001111111111111111111111000000
+        dc.l    %00001111111111111111111111000000
+        dc.l    %00001111111111111111111111000000
+        dc.l    %00000111111111111111111111000000
+        dc.l    %00000011111111111111111110000000
+        dc.l    %00000001111111111011111100000000
+        dc.l    %00000000111111110000000000000000
+        dc.l    %00000000000111000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000110000011101111000000
+        dc.l    %00000000011111100111111111000000
+        dc.l    %00000000011111101111111111000000
+        dc.l    %00001110111111111111111111100000
+        dc.l    %00011111111111111111111111110000
+        dc.l    %00011111111111101111111111100000
+        dc.l    %00111111111111100111111111110000
+        dc.l    %00011111111111110011111111110000
+        dc.l    %00011111111111110111111111110000
+        dc.l    %00001111111111111111111111100000
+        dc.l    %00001111111111110111111111100000
+        dc.l    %00001111111111100011111111000000
+        dc.l    %00000100111110000000000000000000
+        dc.l    %00001110111110000111100111011000
+        dc.l    %00011111111111001111111111111100
+        dc.l    %00111111111111011111111111111000
+        dc.l    %00111111111111111111111111111000
+        dc.l    %00111111111111111111111111111100
+        dc.l    %00011111111111111111111111111110
+        dc.l    %00111111111111110111111111111110
+        dc.l    %00111111111111100111111111111110
+        dc.l    %00011111111111100111111111111100
+        dc.l    %00001111111111110111111111111000
+        dc.l    %00001111111111110011111111111000
+        dc.l    %00001111111111111000111111100000
+        dc.l    %00001111111100110000011111000000
+        dc.l    %00000011111000000000001110000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000001110000001100000000000
+        dc.l    %00000000001110000011110000000000
+        dc.l    %00000000000110111011110000000000
+        dc.l    %00000000001001111101101100000000
+        dc.l    %00000001111101111110011110000000
+        dc.l    %00000011111110111110111110000000
+        dc.l    %00000011111111000000111111000000
+        dc.l    %00000011111110011110011111010000
+        dc.l    %00000001111110111110011110111000
+        dc.l    %00000001111001111111101101111000
+        dc.l    %00001110110011111111110000110000
+        dc.l    %00011110001111111111111000000000
+        dc.l    %00011110011111111111111100110000
+        dc.l    %00000000111111111111111101111000
+        dc.l    %00001111111111001111111101111100
+        dc.l    %00011111111110000111111001111110
+        dc.l    %00111111111111000111110110111100
+        dc.l    %00011111111111000100001111000000
+        dc.l    %00001100111111111110011111000000
+        dc.l    %00000001101111111111011111100000
+        dc.l    %00000011110001111111011111110000
+        dc.l    %00000111110001111111101111111000
+        dc.l    %00000011100000111111100111111000
+        dc.l    %00000000011100001011110011110000
+        dc.l    %00000000011110000011111001100000
+        dc.l    %00000000011110000001110000000000
+        dc.l    %00000000001100000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000010000000000000000000000
+        dc.l    %00000000011000000000000000000000
+        dc.l    %00000000000001110001000000000000
+        dc.l    %00000000000011111000010000000000
+        dc.l    %00000000000011110000111000000000
+        dc.l    %00000011100001100001111000000000
+        dc.l    %00000111110000000000110010000000
+        dc.l    %00000111111000000000000111000000
+        dc.l    %00000111111001111000110010000000
+        dc.l    %00000111111001111101111000000000
+        dc.l    %00000011110001111111111000000000
+        dc.l    %00000000100001111101110000000000
+        dc.l    %00000010000001111000000000000000
+        dc.l    %00000000000000011111000000000000
+        dc.l    %00000011101110001111100001000000
+        dc.l    %00000111111110001111100100000000
+        dc.l    %00000011111111000111000000000000
+        dc.l    %00000001011111000000111100000000
+        dc.l    %00000000001110000100111110000000
+        dc.l    %00000000000000001110111110000000
+        dc.l    %00000000011110000111011111000000
+        dc.l    %00000000001100001110001111100000
+        dc.l    %00000000000000000100000111100000
+        dc.l    %00000000000010000000000011000000
+        dc.l    %00000000000000000001000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000110000000000000000
+        dc.l    %00000000000001110000001100000000
+        dc.l    %00000000000001100000001100000000
+        dc.l    %00000000000000000000001000000000
+        dc.l    %00000011000000000000000000000000
+        dc.l    %00000000011000000001000000000000
+        dc.l    %00000000111100000011100000000000
+        dc.l    %00000000111101110111110000000000
+        dc.l    %00000000011011111011100000000000
+        dc.l    %00000000000001110000000000000000
+        dc.l    %00000000000000110000000000000000
+        dc.l    %00000000000000111100000000000000
+        dc.l    %00000000000000011000000000000000
+        dc.l    %00000001011100000000000000000000
+        dc.l    %00000000111110000000000000000000
+        dc.l    %00000000111110000000000000000000
+        dc.l    %00000000011110000000000000000000
+        dc.l    %00000000000100000000000010000000
+        dc.l    %00000000010000001100000000000000
+        dc.l    %00000000000000011110000000000000
+        dc.l    %00000000000000001100000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
+        dc.l    %00000000000000000000000000000000
 PoofDataEnd
