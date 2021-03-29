@@ -1,6 +1,6 @@
 ***************************************************************************
 ****
-****	NETBOOT SERVER DESK ACCESSORY
+****    NETBOOT SERVER DESK ACCESSORY
 ****
 ***************************************************************************
 
@@ -19,25 +19,25 @@ kWinH       equ 72
 
 **************************** DESK ACCESSORY ENTRY **************************
 
-DAEntry 										; See Device Manager IM:2
-	DC.B	$04                             	; dCtlEnable only
-	DC.B	0									; Lower byte is unused
-	DC.W	5*60								; 5 sec periodic update
-	DC.W	$42			                    	; mouseDown updateEvt
-	DC.W	0									; No menu for this accessory
+DAEntry                                         ; See Device Manager IM:2
+    DC.B    $04                                 ; dCtlEnable only
+    DC.B    0                                   ; Lower byte is unused
+    DC.W    5*60                                ; 5 sec periodic update
+    DC.W    $42                                 ; mouseDown updateEvt
+    DC.W    0                                   ; No menu for this accessory
 
-	DC.W	DAOpen-DAEntry						; Open routine
-	DC.W	DADone-DAEntry						; Prime - unused
-	DC.W	DACtl-DAEntry						; Control
-	DC.W	DADone-DAEntry						; Status - unused
-	DC.W	DAClose-DAEntry 					; Close
+    DC.W    DAOpen-DAEntry                      ; Open routine
+    DC.W    DADone-DAEntry                      ; Prime - unused
+    DC.W    DACtl-DAEntry                       ; Control
+    DC.W    DADone-DAEntry                      ; Status - unused
+    DC.W    DAClose-DAEntry                     ; Close
 
 DATitle
-	DC.B	15, 'NetBoot Server', 0				; DA Name (& Window Title)
-	dc.b    0, 0, $20, 1                        ; traditional version
+    DC.B    15, 'NetBoot Server', 0             ; DA Name (& Window Title)
+    dc.b    0, 0, $20, 1                        ; traditional version
 
 gBackendRefnum
-	dc.w    0
+    dc.w    0
 gBackendQHdr
     dc.l    0
 
@@ -48,8 +48,8 @@ HackQueueHeader
 ************************ DESK ACCESSORY OPEN ROUTINE ***********************
 
 DAOpen
-	MOVEM.L 	A1-A4,-(SP) 					; preserve A1-A4
-	MOVE.L		A1,A4							; MOVE DCE pointer to a reg
+    MOVEM.L     A1-A4,-(SP)                     ; preserve A1-A4
+    MOVE.L      A1,A4                           ; MOVE DCE pointer to a reg
 
 ; Install the backend driver (anywhere in the unit table)
     move.w      $18(A1),D0      ; dCtlRefNum, so we need A0 to be intact
@@ -69,29 +69,29 @@ DAOpen
     lea         HackQueueHeader,A1
     move.l      A1,(A0)
 
-	SUBQ.L		#4,SP							; FUNCTION = GrafPtr
-	MOVE.L		SP,-(SP)						; push a pointer to it
-	DC.W        $A874 ; _GetPort									; push it on top of stack
-	TST.L		$1E(A4)		; DCtlEntry.dCtlWindow do we have a window?
-	BNE  		StdReturn						; If so, return, Else
+    SUBQ.L      #4,SP                           ; FUNCTION = GrafPtr
+    MOVE.L      SP,-(SP)                        ; push a pointer to it
+    DC.W        $A874 ; _GetPort                                    ; push it on top of stack
+    TST.L       $1E(A4)     ; DCtlEntry.dCtlWindow do we have a window?
+    BNE         StdReturn                       ; If so, return, Else
 
 ******************************* NEW WINDOW ROUTINE *************************
 
-	MOVE.L		#156,D0 ; WindowRecord size
-	DC.W        $A11E ; _NewPtr										; allocate space for record
-	SUBQ		#4,SP							; FUNCTION = WindowRef
-	MOVE.L		A0,-(SP)						; address of storage
-	PEA 		theWindow						; boundsRect
-	PEA 		DATitle 						; title
-	CLR.W		-(SP)							; visible flag FALSE
-	MOVE.W		#16,-(SP)			            ; window proc = rDocProc, 16px rounding
-	MOVE.L		#-1,-(SP)						; window in front
-	MOVE.B		#1,-(SP)						; goAway box TRUE
-	MOVE.l      #-1,-(SP)                       ; refCon = -1 (special)
- 	DC.W		$A913 ; __NewWindow
-	MOVE.L		(SP)+,A0
-	MOVE.L		A0,$1E(A4)				; DCtlEntry.DCtlWindow save windowPtr
-	MOVE.W		$18(A4),$6C(A0)	; DCtlEntry.DCtlRefNum system window
+    MOVE.L      #156,D0 ; WindowRecord size
+    DC.W        $A11E ; _NewPtr                                     ; allocate space for record
+    SUBQ        #4,SP                           ; FUNCTION = WindowRef
+    MOVE.L      A0,-(SP)                        ; address of storage
+    PEA         theWindow                       ; boundsRect
+    PEA         DATitle                         ; title
+    CLR.W       -(SP)                           ; visible flag FALSE
+    MOVE.W      #16,-(SP)                       ; window proc = rDocProc, 16px rounding
+    MOVE.L      #-1,-(SP)                       ; window in front
+    MOVE.B      #1,-(SP)                        ; goAway box TRUE
+    MOVE.l      #-1,-(SP)                       ; refCon = -1 (special)
+    DC.W        $A913 ; __NewWindow
+    MOVE.L      (SP)+,A0
+    MOVE.L      A0,$1E(A4)              ; DCtlEntry.DCtlWindow save windowPtr
+    MOVE.W      $18(A4),$6C(A0) ; DCtlEntry.DCtlRefNum system window
 
     subq        #4,SP       ; Space for _NewControl results
     move.l      A0,D3
@@ -130,7 +130,7 @@ DAOpen
     move.l      SP,-(SP)
     dc.w        $A874           ; _GetPort to the stack space we made
     move.l      $1E(A4),-(SP)   ; dCtlWindow
-    dc.w		$A873           ; _SetPort
+    dc.w        $A873           ; _SetPort
 
     ; Use the cutesy small system font
     subq        #4,SP
@@ -159,89 +159,89 @@ DAOpen
     move.l      $1E(A4),A0
     move.l      (SP)+,$98(A0)
 
-    dc.w		$A873           ; _SetPort restore
+    dc.w        $A873           ; _SetPort restore
 
 
 
 
 
 StdReturn
- 	DC.W		$A873 ; __SetPort									; old port on stack
-	MOVEM.L 	(SP)+,A1-A4 					; restore regs
+    DC.W        $A873 ; __SetPort                                   ; old port on stack
+    MOVEM.L     (SP)+,A1-A4                     ; restore regs
 
 
 ************************ DESK ACCESSORY DONE ROUTINE ***********************
 
 DADone
-	MOVEQ		#0,D0							; return no error
-	RTS 										; all done, exit
+    MOVEQ       #0,D0                           ; return no error
+    RTS                                         ; all done, exit
 
 
 ************************ DESK ACCESSORY CLOSE ROUTINE **********************
 
 DAClose
-	MOVEM.L 	A1-A4,-(SP) 					; preserve A1-A4
-	MOVE.L		A1,A4							; MOVE DCE ptr to A4
+    MOVEM.L     A1-A4,-(SP)                     ; preserve A1-A4
+    MOVE.L      A1,A4                           ; MOVE DCE ptr to A4
 
-	SUBQ.L		#4,SP							; FUNCTION = GrafPtr
-	MOVE.L		SP,-(SP)						; push a pointer to it
- 	DC.W		$A874 ; __GetPort									; get it, now it's on TOS
+    SUBQ.L      #4,SP                           ; FUNCTION = GrafPtr
+    MOVE.L      SP,-(SP)                        ; push a pointer to it
+    DC.W        $A874 ; __GetPort                                   ; get it, now it's on TOS
 
-	MOVE.L		$1E(A4),-(SP)	; DCtlEntry.DCtlWindow push the window
- 	DC.W		$A914 ; __DisposeWindow								; dispose of the window
+    MOVE.L      $1E(A4),-(SP)   ; DCtlEntry.DCtlWindow push the window
+    DC.W        $A914 ; __DisposeWindow                             ; dispose of the window
 
-	CLR.L		2(A3)		; DCtlEntry.DCtlWindow mark DCE properly
-	BRA.S		StdReturn						; all done with close, exit
+    CLR.L       2(A3)       ; DCtlEntry.DCtlWindow mark DCE properly
+    BRA.S       StdReturn                       ; all done with close, exit
 
 
 ********************** DESK ACCESSORY CONTROL ROUTINE **********************
 
 DACtl
-	MOVE.L		A4,-(SP)						; preserve reg
-	MOVE.L		A1,A4							; move DCE ptr to A4
-	MOVE.W		$1A(A0),D0		; get the control opCode
-	SUB.W		#64,D0					; = 64? (event)
-	BEQ.S		DoCtlEvent
+    MOVE.L      A4,-(SP)                        ; preserve reg
+    MOVE.L      A1,A4                           ; move DCE ptr to A4
+    MOVE.W      $1A(A0),D0      ; get the control opCode
+    SUB.W       #64,D0                  ; = 64? (event)
+    BEQ.S       DoCtlEvent
 
 CtlDone
-	MOVE.L		A4,A1							; put DCE ptr back in A1
-	MOVE.L		(SP)+,A4						; restore reg
-	MOVEQ		#0,D0							; return no error
-	MOVE.L		$8FC,-(SP)					; jump to IODone
-	RTS
+    MOVE.L      A4,A1                           ; put DCE ptr back in A1
+    MOVE.L      (SP)+,A4                        ; restore reg
+    MOVEQ       #0,D0                           ; return no error
+    MOVE.L      $8FC,-(SP)                  ; jump to IODone
+    RTS
 
 
 ************************** EVENT HANDLING ROUTINE **************************
 
 DoCtlEvent
-	MOVE.L		A3,-(SP)						; save reg
-	MOVE.L		$1C(A0),A3		                ; CntrlParam.CSParam = event pointer
-	MOVE.W		0(A3),D0			            ; EventRecord.what
+    MOVE.L      A3,-(SP)                        ; save reg
+    MOVE.L      $1C(A0),A3                      ; CntrlParam.CSParam = event pointer
+    MOVE.W      0(A3),D0                        ; EventRecord.what
     CMP.W       #1,D0
     BEQ.S       CtlEvtMouse
-	SUBQ		#6,D0					; updateEvt is it an update?
-	BNE.S		CtlEvtDone						; If not, exit
+    SUBQ        #6,D0                   ; updateEvt is it an update?
+    BNE.S       CtlEvtDone                      ; If not, exit
 
-	MOVE.L		2(A3),-(SP)	; EventRecord.message push windowPtr
- 	DC.W		$A922 ; __BeginUpdate								; begin the update operation
+    MOVE.L      2(A3),-(SP) ; EventRecord.message push windowPtr
+    DC.W        $A922 ; __BeginUpdate                               ; begin the update operation
 
-	MOVE.L		2(A3),-(SP)	; EventRecord.message push windowPtr again
- 	DC.W		$A873 ; __SetPort
-	BSR 		DrawWindow						; draw our items
+    MOVE.L      2(A3),-(SP) ; EventRecord.message push windowPtr again
+    DC.W        $A873 ; __SetPort
+    BSR         DrawWindow                      ; draw our items
 
-	MOVE.L		2(A3),-(SP)	; EventRecord.message one more time
- 	DC.W		$A923 ; __EndUpdate									; end of update
+    MOVE.L      2(A3),-(SP) ; EventRecord.message one more time
+    DC.W        $A923 ; __EndUpdate                                 ; end of update
 
 CtlEvtDone
-	MOVE.L		(SP)+,A3						; restore reg
-	BRA.S		CtlDone 						; exit
+    MOVE.L      (SP)+,A3                        ; restore reg
+    BRA.S       CtlDone                         ; exit
 
 CtlEvtMouse
     subq        #4,SP           ; Save the GrafPort (good manners)
     move.l      SP,-(SP)
     dc.w        $A874           ; _GetPort to the stack space we made
     move.l      $1E(A4),-(SP)   ; dCtlWindow
-    DC.W		$A873           ; _SetPort
+    DC.W        $A873           ; _SetPort
 
     move.l      10(A3),-(SP); Get D4 as the point in our coords
     move.l      SP,-(SP)
@@ -301,7 +301,7 @@ CtlEvtMouse
     jsr         (A0)
 
 .noControlClicked
-    DC.W		$A873           ; _SetPort to restore the GrafPort
+    DC.W        $A873           ; _SetPort to restore the GrafPort
 
     BRA         CtlEvtDone
 
@@ -320,7 +320,7 @@ DrawWindow
     bsr         DrawFakeGrowBox
 
 Exit
-	RTS
+    RTS
 
 ***************************** SUBROUTINES ****************************
 
@@ -706,10 +706,10 @@ QueueForEach ; A0 = pointer to q header, A1 = func, preserves ALL other register
 
 ******************************* DATA AREA **********************************
 
-theWindow	DC.W	50,5,50+kWinH,5+kWinW		; window top,left,bottom,right
+theWindow   DC.W    50,5,50+kWinH,5+kWinW       ; window top,left,bottom,right
 windowLimit DC.W    kWinH,kWinW,32767,32767 ; minH,minW,maxH,maxW
 
-theList	    DC.W	0,0,kWinH-24,kWinW-15			; list top,left,bottom,right
+theList     DC.W    0,0,kWinH-24,kWinW-15           ; list top,left,bottom,right
 listBounds  DC.W    0,0,0,1
 
 theFontInputRecord
