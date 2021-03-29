@@ -85,11 +85,16 @@ testchain: ChainLoader.bin FORCE
 ServerDA.bin: ServerDA.a
 	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
 
-ServerDA ServerDA.idump ServerDA.rdump: ServerDA.bin
+ServerDRVR.bin: ServerDRVR.a
+	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
+
+ServerDA ServerDA.idump ServerDA.rdump: ServerDA.bin ServerDRVR.bin
 	touch ServerDA ServerDA.idump
 	/bin/echo -n dfilmovr >ServerDA.idump
 	echo data "'DRVR'" '(12, "", purgeable) {};' >ServerDA.rdump
 	rfx cp ServerDA.bin ServerDA.rdump//DRVR/12
+	echo data "'DRVR'" '(-16000, sysheap, locked) {};' >>ServerDA.rdump
+	rfx cp ServerDRVR.bin ServerDA.rdump//DRVR/-16000
 
 testda: FORCE ServerDA ServerDA.idump ServerDA.rdump
 	rm -rf /tmp/testda; mkdir -p /tmp/testda/Desktop\ Folder; cp ServerDA ServerDA.idump ServerDA.rdump /tmp/testda/Desktop\ Folder/

@@ -1,0 +1,143 @@
+; I implement a "BootServer" on the AppleTalk network
+; The Server Desk Accessory installs me in the system heap and opens me
+
+ServerHeader
+            dc.w    $4000           ; dNeedLock
+            dc.w    0               ; delay
+            dc.w    0               ; evt mask
+            dc.w    0               ; menu
+
+            dc.w    ServerOpen-ServerHeader
+            dc.w    0               ; no Prime
+            dc.w    0               ; no Control
+            dc.w    0               ; no Status
+            dc.w    ServerClose-ServerHeader
+            dc.b    14, '.NetBootServer', 0
+            dc.b    0, 0, $20, 1    ; version
+
+ServerOpen
+            dc.w    $A9FF
+            movem.l A0/A1,-(SP)
+
+; Try *once*. AT might come up later but not because of us.
+            bsr     TryOpenMPP
+            bne.s   .couldNotOpenAppleTalk
+            bsr     Listen
+.couldNotOpenAppleTalk
+
+; Be ready for the LAP Manager to open/close .MPP
+            bsr     RegisterForTransitions
+
+            movem.l (SP)+,A0/A1
+            clr.w   $10(A0)         ; return noErr
+            rts
+
+ServerClose
+            movem.l A0/A1,-(SP)
+            bsr     StopListening
+            movem.l (SP)+,A0/A1
+            clr.w   D0              ; return noErr
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+TryOpenMPP
+; Checking whether the "B" printer port is configured for AppleTalk is an
+; application responsibility on 64K ROM machines (as documented in IM),
+; but 128K ROM and later machines move this check to AppleTalk itself,
+; for example to allow other AppleTalk interfaces.
+            tst.w   $28E            ; ROM85 positive?
+            bgt.s   .returnYes      ; it is always safe to try on 128K machines
+
+            move.b  $1FB,D0         ; SPConfig & 0xF == useFree (0) or useATalk (1)?
+            and.b   #$F,D0
+            sub.b   #1,D0
+            ble.s   .returnYes
+
+            move.b  $291,D0         ; PortBUse negative or useATalk (1)?
+            blt.s   .returnYes
+            cmp.b   #1,D0
+            beq.s   .returnYes
+
+.returnNo   moveq   #1,D0
+            rts
+
+.returnYes
+            sub     #$32,SP
+            lea     .MPP,A0
+            move.l  A0,$12(SP)      ; IOFileName
+            clr.b   $1B(SP)         ; IOPermssn
+            move.l  SP,A0
+            dc.w    $A000           ; _Open
+            tst.w   $10(A0)         ; IOResult: check it
+            add     #$32,SP
+            rts
+
+.MPP        dc.b    4, '.MPP', 0
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+RegisterForTransitions rts ; register for the LAP Manager queue if possible
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+Listen
+            sub     #$32,SP         ; OPEN DDP SOCKET
+            move.w  #-10,$18(SP)        ; ioRefNum = MPP
+            move.w  #248,$1A(SP)        ; csCode = openSkt
+            clr.b   $1C(SP)             ; socket = auto-assign
+            pea     SocketListener
+            move.l  (SP)+,$1E(SP)       ; listener
+            move.l  SP,A0
+            dc.w    $A004               ; _Control
+            lea     NameTableEntry+7,A0 ; lowest byte of AddrBlock
+            move.b  $1C(SP),(A0)        ; save socket number there
+            add     #$32,SP
+
+            sub     #$32,SP         ; ADVERTISE NBP SERVICE
+            move.w  #-10,$18(SP)        ; ioRefNum = MPP
+            move.w  #253,$1A(SP)        ; csCode = registerName
+            move.b  #7,$1C(SP)          ; interval = 7*8 ticks = 1sec
+            move.b  #5,$1D(SP)          ; count = 5
+            pea     NameTableEntry
+            move.l  (SP)+,$1E(SP)       ; entityPtr = our NTE
+            move.b  #1,$22(SP)          ; verifyFlag = do
+            move.l  SP,A0
+            dc.w    $A004               ; _Control
+            add     #$32,SP
+
+            rts
+
+NameTableEntry
+            dc.l    0                   ; qLink
+            dc.l    0                   ; addrblock
+            dc.b    0                   ; odd address
+            dc.b    4, '0000'           ; object
+            dc.b    10, 'BootServer'    ; type
+            dc.b    1, '*'              ; zone
+            even
+
+StopListening
+            sub     #$32,SP         ; REMOVE NBP SERVICE
+            move.w  #-10,$18(SP)        ; ioRefNum = MPP
+            move.w  #252,$1A(SP)        ; csCode = removeName
+            pea     NameTableEntry
+            move.l  (SP)+,$1E(SP)       ; entityPtr = our NTE
+            move.l  SP,A0
+            dc.w    $A004               ; _Control
+            add     #$32,SP
+
+            sub     #$32,SP         ; CLOSE DDP SOCKET
+            move.w  #-10,$18(SP)        ; ioRefNum = MPP
+            move.w  257,$1A(SP)         ; csCode = closeSkt
+            move.b  NameTableEntry+7,$1C(SP); socket = auto-assign
+            move.l  SP,A0
+            dc.w    $A004               ; _Control
+            add     #$32,SP
+
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+SocketListener ; DDP socket listener, very tricky piece of code!
+            dc.w    $A9FF

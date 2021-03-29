@@ -51,6 +51,19 @@ DAOpen
 	MOVEM.L 	A1-A4,-(SP) 					; preserve A1-A4
 	MOVE.L		A1,A4							; MOVE DCE pointer to a reg
 
+; Install the backend driver (anywhere in the unit table)
+    move.w      $18(A1),D0      ; dCtlRefNum, so we need A0 to be intact
+    not.w       D0
+    asl.w       #5,D0
+    or.w        #$C000,D0       ; "owned resource" ID
+    subq        #4,SP
+    move.l      #'DRVR',-(SP)
+    move.w      D0,-(SP)
+    dc.w        $A9A0           ; _GetResource (will be locked in sysheap)
+    move.l      (SP)+,A0
+    move.l      (A0),A0
+    bsr         InstallAndOpenDriver
+
 ; Create a fake queue to use until the backend driver is written
     lea         gBackendQHdr,A0
     lea         HackQueueHeader,A1
@@ -727,6 +740,60 @@ GetFile ; push a 74 byte SFReply structure to the stack
             move.w  #2,-(SP)            ; SFGetFile selector
             dc.w    $A9EA               ; _Pack3
 
+            rts
+
+
+InstallAndOpenDriver ; driver pointer is in A0, returns err code in D0
+            movem.l A3-A4/D7,-(SP)
+            move.l  A0,A4 ; keep the driver pointer in A4
+
+            ; slightly unorthodox approach...
+            move.l  $11C,A3             ; unit table base
+            clr.l   D7
+            move.w  $1D2,D7             ; unit table length in bytes
+            add.l   D7,D7
+            add.l   D7,D7
+
+            tst.l   -4(A3,D7)           ; Extend unit table by 1 slot if needed
+            beq.s   .lastEntryIsFree
+            addq.l  #4,D7
+            move.l  D7,D0
+            dc.w    $A71E               ; _NewPtrSysClear (new one)
+            move.l  A0,A1
+            move.l  A3,A0
+            move.l  D7,D0
+            subq.l  #4,D0
+            dc.w    $A22E               ; _BlockMoveData (old to new)
+            move.l  A1,A3
+            move.l  A1,$11C
+            add.w   #1,$1D2
+            dc.w    $A01F               ; _DisposPtr (old)
+.lastEntryIsFree
+
+            move.l  A4,A0
+            move.w  $1D2,D0
+            neg.w   D0                  ; -(lenUT) = refnum highest slot
+            dc.w    $A43D               ; _DrvrInstall ReserveMem
+
+            move.l  -4(A3,D7),A0        ; We need to populate this ourselves
+            move.l  (A0),A0
+            move.l  A4,(A0)             ; set dCtlDriver pointer
+            move.w  (A4),4(A0)          ; drvrFlags to dCtlFlags
+            move.w  2(A4),$22(A0)       ; drvrDelay to dCtlDelay
+            move.w  4(A4),$24(A0)       ; drvrEMask to dCtlEMask
+            move.w  6(A4),$26(A0)       ; drvrMenu to dCtlMenu
+
+    ; Open the driver
+            sub     #$32,SP
+            move.l  SP,A0
+            clr.b   $1B(A0)             ; IOPermssn = whatever is allowed
+            pea     $12(A4)             ; IOFileName = directly from the DRVR
+            move.l  (SP)+,$12(A0)
+            dc.w    $A000               ; _Open
+            move.w  $10(A0),D0          ; return result
+            add     #$32,SP
+
+            movem.l (SP)+,A3-A4/D7
             rts
 
 
