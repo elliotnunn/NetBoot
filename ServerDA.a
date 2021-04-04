@@ -202,6 +202,7 @@ Init
         dc.w    $A954           ; _NewControl
         move.l  (SP)+,gCloseBtn(A4)
 
+        if 0
         subq    #4,SP
         move.l  A4,-(SP)        ; theWindow
         pea     DiskBtnRect     ; boundsRect
@@ -212,6 +213,7 @@ Init
         move.l  #DiskBtn-DAEntry,-(SP)  ; refCon
         dc.w    $A954           ; _NewControl
         move.l  (SP)+,gDiskBtn(A4)
+        endif
 
         subq    #4,SP
         pea     theList         ; rView
