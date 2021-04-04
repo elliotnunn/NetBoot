@@ -145,7 +145,6 @@ DACtl
 
 Init
 ; Install the backend driver (anywhere in the unit table)
-        if 0
         subq    #4,SP
         move.l  #'DRVR',-(SP)
         bsr     GetFirstOwnedResID
@@ -163,7 +162,6 @@ Init
         dc.w    $A004           ; _Control
         move.l  $1C(SP),gBackendQHdr(A4)
         add     #$32,SP
-        endif
 
 ; Create our window
         subq    #4,SP                           ; FUNCTION = WindowRef
