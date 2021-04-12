@@ -12,11 +12,62 @@ ServerHeader
             dc.w    0               ; no Control
             dc.w    0               ; no Status
             dc.w    ServerClose-ServerHeader
-            dc.b    14, '.NetBootServer', 0
+            dc.b    14, '.NetBootServer'
+            even
             dc.b    0, 0, $20, 1    ; version
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Inline globals are practical because we are locked in the sysheap
+
+ATBOOT_BLK_LOG      equ 8
+ATBOOT_BLK_SIZE     equ 1<<ATBOOT_BLK_LOG
+
+gNameTableEntry ; Installed using RegisterName
+            dc.l    0               ; qLink
+            dc.l    0               ; addrblock (our DDP skt at offset 7)
+            odd
+            dc.b    4, '0000'       ; object (must match const in PRAM)
+            dc.b    10, 'BootServer'; type (always this)
+            dc.b    1, '*'          ; zone
+            even
+
+gABPBusyFlag ; Lockout flag: only one ABP request can be serviced at a time
+            dc.w    0
+
+gABPReplyParamBlk ; For writeDDP control calls
+            dcb.b   $32
+
+
+cannedWDS   dcb.b   24 ; doesn't need to be this long at all
+
+            odd
+gABPAddress ; Address of the Apple Boot Protocol client:
+            ; set when socket listener gets a packet, used when replying
+            dcb.b   15              ; totally obscure address format
+            dc.b    10              ; ddp type
+            dcb.b   1               ; backup of high byte of dest network
+                                    ; (MUST copy byte 16 to 7 for every use)
+
+gABPUserReply ; reply to rbMapUser packet
+            dc.b    2               ; rbUserReply
+            dc.b    1               ; protocol version (always 1)
+            dc.w    1               ; osID (always 1)
+            dc.l    $FFFFFFFF       ; copy client's timestamp here (offset 4)
+            dc.w    ATBOOT_BLK_SIZE ; block size
+            dc.w    0               ; imageID (we always use 0)
+            dc.w    0               ; error code
+            dc.l    (BlobEnd-Blob)/ATBOOT_BLK_SIZE ; block count
+            dcb.b   568             ; arbitrary bytes
+
+gABPImageReply ; reply to rbImageRequest packet
+            dc.b    4               ; rbImageData
+            dc.b    1               ; protocol version (always 1)
+            dc.w    0               ; imageID (we always use 0)
+            dc.w    0               ; increment block number here (offset 4)
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
 ServerOpen
-            dc.w    $A9FF
             movem.l A0/A1,-(SP)
 
 ; Try *once*. AT might come up later but not because of us.
@@ -90,7 +141,7 @@ Listen
             move.l  (SP)+,$1E(SP)       ; listener
             move.l  SP,A0
             dc.w    $A004               ; _Control
-            lea     NameTableEntry+7,A0 ; lowest byte of AddrBlock
+            lea     gNameTableEntry+7,A0 ; lowest byte of AddrBlock
             move.b  $1C(SP),(A0)        ; save socket number there
             add     #$32,SP
 
@@ -99,7 +150,7 @@ Listen
             move.w  #253,$1A(SP)        ; csCode = registerName
             move.b  #7,$1C(SP)          ; interval = 7*8 ticks = 1sec
             move.b  #5,$1D(SP)          ; count = 5
-            pea     NameTableEntry
+            pea     gNameTableEntry
             move.l  (SP)+,$1E(SP)       ; entityPtr = our NTE
             move.b  #1,$22(SP)          ; verifyFlag = do
             move.l  SP,A0
@@ -108,20 +159,12 @@ Listen
 
             rts
 
-NameTableEntry
-            dc.l    0                   ; qLink
-            dc.l    0                   ; addrblock
-            dc.b    0                   ; odd address
-            dc.b    4, '0000'           ; object
-            dc.b    10, 'BootServer'    ; type
-            dc.b    1, '*'              ; zone
-            even
 
 StopListening
             sub     #$32,SP         ; REMOVE NBP SERVICE
             move.w  #-10,$18(SP)        ; ioRefNum = MPP
             move.w  #252,$1A(SP)        ; csCode = removeName
-            pea     NameTableEntry
+            pea     gNameTableEntry
             move.l  (SP)+,$1E(SP)       ; entityPtr = our NTE
             move.l  SP,A0
             dc.w    $A004               ; _Control
@@ -130,7 +173,7 @@ StopListening
             sub     #$32,SP         ; CLOSE DDP SOCKET
             move.w  #-10,$18(SP)        ; ioRefNum = MPP
             move.w  257,$1A(SP)         ; csCode = closeSkt
-            move.b  NameTableEntry+7,$1C(SP); socket = auto-assign
+            move.b  gNameTableEntry+7,$1C(SP); socket = auto-assign
             move.l  SP,A0
             dc.w    $A004               ; _Control
             add     #$32,SP
@@ -139,5 +182,158 @@ StopListening
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-SocketListener ; DDP socket listener, very tricky piece of code!
-            dc.w    $A9FF
+nopCompletion
+            lea     gABPBusyFlag,A0
+            clr.b   (A0)
+            rts
+
+SocketListener ; Socket listener registers documented in IM
+            lea     gABPBusyFlag,A5
+            bset.b  #7,(A5)
+            bne     .TrashPacketStayingBusy
+
+            lea     gABPAddress,A5  ; RETURN ADDRESS SAVE CODE
+            move.b  2(A2),11(A5)    ; both types node (ALAP header starts A2+1)
+            move.b  -2(A3),13(A5)   ; both types socket (DDP header ends A3)
+            moveq   #0,D3           ; short packet network = 0
+            cmp.b   #1,3(A2)
+            beq.s   .short
+            move.w  10(A2),D3       ; long packet network
+.short      move.w  D3,7(A5)        ; network number as usual
+            asr.w   #8,D3
+            move.b  D3,16(A5)       ; backup high-order byte of network number
+                                    ; otherwise would go to offset 7
+
+; Always get the command, version and two more bytes
+            moveq   #8,D3
+            jsr     2(A4)           ; ReadRest command, version and 6 more bytes
+            ;bne.s   TrashPacket
+            subq    #6,A3
+            cmp.b   #1,-(A3)        ; version must be 1
+            bne.s   .TrashPacket
+            move.b  -(A3),D2
+            subq.b  #1,D2
+            beq.s   .rbMapUser      ; 1 = user record request
+            subq.b  #2,D2           ; 3 = imageRequest
+            beq.s   .rbImageRequest
+
+.TrashPacket
+            lea     gABPBusyFlag,A5
+            clr.b   (A5)
+.TrashPacketStayingBusy
+            moveq   #0,D3
+            jmp     2(A4)           ; ReadRest
+
+
+.rbMapUser ; "user record request"
+; +0 (1b)     command (already checked)
+; +1 (1b)     version (already checked)
+; +2 (2b)     osID (already slurped and ignored)
+; +4 (4b)     userData (timestamp to be returned in reply)
+; +8 (32b)    userName
+            lea     gABPUserReply+4,A0
+            move.l  4(A3),(A0)      ; copy "userData" to the reply
+
+            lea     cannedWDS+14,A1
+            clr.w   -(A1)
+            lea     gABPUserReply,A0
+            move.l  A0,-(A1)
+            move.w  #586,-(A1)
+            lea     gABPAddress,A0
+            move.l  A0,-(A1)
+            clr.w   -(A1)
+
+            move.b  16(A0),7(A0)    ; repair the address struct
+
+            lea     gABPReplyParamBlk,A0
+            move.l  A1,$1E(A0)      ; wdsPointer
+            lea     nopCompletion,A1
+            move.l  A1,$C(A0)       ; ioCompletion
+            move.w  #-10,$18(A0)    ; ioRefNum = .MPP
+            move.w  #246,$1A(A0)    ; csCode = writeDDP
+            move.b  gNameTableEntry+7,$1C(A0); our socket
+            move.b  #1,$1D(A0)      ; set checksumFlag
+            dc.w    $A404           ; _Control ,async
+            rts
+
+.rbImageRequest ; reply with rbImageReply
+; +0 (1b)     command (already checked)
+; +1 (1b)     version (already checked)
+; +2 (2b)     imageID (already slurped and ignored)
+; +4 (1b)     section, ie which 2MB chunk
+; +5 (1b)     flags
+; +6 (2b)     replyDelay
+; +8 (<=512b) bitmap
+
+; IGNORE the janky bitmap because the client implementation is buggy.
+; It is reasonable just to send every packet instead (our image is tiny).
+
+            lea     gABPImageReply+4,A0 ; count of packets to send
+            move.w  #(BlobEnd-Blob)/ATBOOT_BLK_SIZE,(A0)
+
+ImageReplyCompletionRoutine ; fallthru from skt listener OR writeDDP completion
+            lea     gABPImageReply+4,A0
+            move.w  (A0),D0
+            subq.w  #1,D0
+            move.w  D0,(A0)
+            blt.s   AllDoneCompletionRoutine
+
+            move.w  D0,D1 ; D0 = idx, D1 = offset
+            mulu.w  #ATBOOT_BLK_SIZE,D1
+
+            lea     cannedWDS+20,A1
+            clr.w   -(A1)
+
+            lea     Blob,A0
+            lea     (A0,D1),A0
+            move.l  A0,-(A1)
+            move.w  #ATBOOT_BLK_SIZE,-(A1)
+
+            lea     gABPImageReply,A0
+            move.w  D0,4(A0)
+            move.l  A0,-(A1)
+            move.w  #6,-(A1)
+
+            lea     gABPAddress,A0
+            move.l  A0,-(A1)
+            clr.w   -(A1)
+
+            move.b  16(A0),7(A0)    ; repair the address struct
+
+            lea     gABPReplyParamBlk,A0
+            move.l  A1,$1E(A0)      ; wdsPointer
+            lea     ImageReplyCompletionRoutine,A1
+            move.l  A1,$C(A0)       ; ioCompletion
+            move.w  #-10,$18(A0)    ; ioRefNum = .MPP
+            move.w  #246,$1A(A0)    ; csCode = writeDDP
+            move.b  gNameTableEntry+7,$1C(A0); our socket
+            move.b  #1,$1D(A0)      ; set checksumFlag
+            dc.w    $A404           ; _Control ,async
+            rts
+
+
+AllDoneCompletionRoutine
+            lea     gABPBusyFlag,A0
+            clr.b   (A0)
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+    if 0 ; Cool routine, don't need it because we inline the payload
+GetMyResourceID ; returns it in D0
+            link    A6,#-262
+            lea     ServerHeader,A0
+            dc.w    $A528               ; _RecoverHandleSys
+            move.l  A0,-(SP)            ; handle to this resource
+            pea     -262(A6)            ; place for ID
+            pea     -260(A6)            ; place for type
+            pea     -256(A6)            ; place for name
+            dc.w    $A9A8               ; _GetResInfo
+            move.w  -262(A6),D0
+            unlk    A6
+            rts
+    endif
+
+Blob
+            incbin  'Client.bin.summed' ; built from Client.a
+BlobEnd

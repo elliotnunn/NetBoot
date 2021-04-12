@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import struct
 
 SBOXES = [
@@ -354,25 +356,20 @@ def snefru(inbytes):
 
 
 def append_snefru(x):
-    if len(x) % 512 == 0:
-        maybe_already = snefru(x[:-64])
-        if x[-16:] == maybe_already: return x
-
-    while len(x) % 512 != 512 - 64: x += b'\0'
-    the_hash = snefru(x)
-    while len(x) % 512 != 512 - 16: x += b'\0'
-    x += the_hash
-
-    return x
+    while len(x) % 64: x += b'\0' # this is a requirement of the hash
+    return x + bytes(48) + snefru(x)
 
 
 if __name__ == '__main__':
-    import sys
-    for p in sys.argv[1:]:
-        try:
-            x = open(p, 'rb').read()
-            y = append_snefru(x)
-            if x != y: open(p, 'wb').write(x)
+    import argparse
 
-        except Exception as e:
-            print(e)
+    parser = argparse.ArgumentParser(description='Append snefru hash to file')
+    parser.add_argument('input')
+    parser.add_argument('output')
+    parser.add_argument('--align', type=int, default=64, action='store', help='align the final product to a multiple of this (must be multiple of 64)')
+
+    args = parser.parse_args()
+    x = open(args.input, 'rb').read()
+    while len(x) % args.align != args.align - 64: x += b'\0'
+    x = append_snefru(x)
+    open(args.output, 'wb').write(x)

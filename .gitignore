@@ -3,7 +3,7 @@
 BootstrapFloppy/System.rdump
 BootstrapFloppy.dsk
 BootServer.INIT*
-*.bin
+*.bin*
 *.tmp
 *.pyc
 payload

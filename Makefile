@@ -82,10 +82,16 @@ testchain: ChainLoader.bin FORCE
 
 
 
+Client.bin: Client.a
+	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
+
+Client.bin.summed: Client.bin
+	./snefru_hash.py --align=256 $< $@
+
 ServerDA.bin: ServerDA.a
 	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
 
-ServerDRVR.bin: ServerDRVR.a
+ServerDRVR.bin: ServerDRVR.a Client.bin.summed
 	vasm-1/vasmm68k_mot -quiet -Fbin -pic -o $@ $<
 
 ServerDA ServerDA.idump ServerDA.rdump: ServerDA.bin ServerDRVR.bin
@@ -96,11 +102,11 @@ ServerDA ServerDA.idump ServerDA.rdump: ServerDA.bin ServerDRVR.bin
 	echo data "'DRVR'" '(-16000, sysheap, locked) {};' >>ServerDA.rdump
 	rfx cp ServerDRVR.bin ServerDA.rdump//DRVR/-16000
 
-testda: FORCE ServerDA ServerDA.idump ServerDA.rdump
+testda: FORCE ServerDA ServerDA.idump ServerDA.rdump BootstrapFloppy.dsk
 	rm -rf /tmp/testda; mkdir -p /tmp/testda/Desktop\ Folder; cp ServerDA ServerDA.idump ServerDA.rdump /tmp/testda/Desktop\ Folder/
 	MakeHFS -s 400k -n TestDA -d now -i /tmp/testda /tmp/testda.dsk
 	rsync Big.dsk /tmp/Big.dsk
-	Mini\ vMac\ Classic.app/Co*/Ma*/* /tmp/Big.dsk /tmp/testda.dsk
+	./twovmacs.bash "BootstrapFloppy.dsk" "/tmp/Big.dsk /tmp/testda.dsk"
 
 
 

@@ -1,0 +1,739 @@
+            move.w  #$abab,D0
+            dc.w    $A9C9
+
+
+
+kUserRecLen equ 568
+kInitialWaitMsec    equ 10000
+kSubsequentWaitMsec equ 1000
+
+Code
+
+; The ROM issued a _Read call that eventually reached here.
+; We need to handle this _Read trap directly, without the intervening .netBOOT and .ATBOOT drivers.
+; We do this by rewinding the Device Manager's return address by 2 bytes.
+
+; Why?
+; The ROM network boot mechanism is complicated and buggy.
+; The workarounds are difficult.
+; Therefore this big hack obviates many little hacks.
+
+
+; First problem: this is not a safe place to keep code. Jump away.
+; (Using the heap while all the netBOOT junk is there would cause fragmentation.)
+            lea     ResumeAfterCopy,A0
+            move.l  #CodeEnd-ResumeAfterCopy,D0
+            lea     4096(A5),A1
+            dc.w    $A02E ; _BlockMove
+            jmp     4096(A5)
+ResumeAfterCopy
+
+; Salvage some possibly useful information from ATBOOT, while it is still running:
+
+    ; Server address
+            move.l  8(SP),A0    ; global pointer
+            move.l  24(A0),D0   ; AddrBlock
+            lea     gSaveAddr,A0
+            move.b  #10,15(A0)  ; hardcode DDP protocol ID
+            move.b  D0,13(A0)   ; socket
+            lsr.w   #4,D0
+            lsr.w   #4,D0
+            move.b  D0,11(A0)   ; node
+            swap    D0
+            move.w  D0,7(A0)    ; network
+
+    ; User record
+            lea     gUserRec,A1
+            move.l  8(SP),A0    ; global pointer
+            lea     46(A0),A0
+            move.l  #kUserRecLen,D0
+            dc.w    $A02E ; _BlockMove
+
+
+; Currently the call stack looks like this:
+;   ROM _Read to get boot blocks
+;     .netBOOT Read routine
+;       .ATBOOT Control routine
+;         direct call to this block of code
+
+; But we want to close and remove .netBOOT & .ATBOOT, so we need to return
+; from their Device Manager calls, and steal control from the ROM.
+; We do this by scanning the stack for the return address of the original _Read.
+            move.l  $2AE,A0                 ; A0 = ROMBase (lower limit)
+            lea     $4000(A0),A1            ; A1 = ROMBase + a bit (upper limit)
+            move.l  SP,A2
+.loop       addq.l  #2,A2                   ; A2 = where we search the stack
+            move.l  (A2),A3                 ; A3 = potential return address
+            cmp.l   A0,A3                   ; lower limit check
+            bls.s   .loop
+            cmp.l   A1,A3                   ; upper limit check
+            bhi.s   .loop
+            cmp.w   #$A002,-2(A3)           ; _Read trap check
+            bne.s   .loop
+
+            pea     GoHereFromReadTrap      ; take over
+            move.l  (SP)+,(A2)
+            lea     ROMAfterReadTrap,A2     ; save original for later
+            move.l  A3,(A2)
+
+            moveq.l #-1,D0      ; .netBOOT/.ATBOOT don't do any more damage if an error is returned
+            rts
+
+ROMAfterReadTrap
+            dc.l    0
+
+GoHereFromReadTrap
+; Now we are outside .netBOOT/.ATBOOT. We can shut them down, and set up our driver in a clean environment.
+
+            move.l  ROMAfterReadTrap,-(SP)  ; our return address is to ROM
+            sub.l   #2,(SP)                 ; repeating the _Read trap
+            movem.l A0-A6/D0-D7,-(SP)       ; save registers conservatively (especially A0)
+
+    ; A4 = param block to the .netBOOT _Read call, because we will use it a lot
+            move.l  A0,A4
+
+    ; Close and delete .netBOOT (which will close .ATBOOT)
+            lea     -$32(SP),SP
+            move.l  SP,A0
+            move.w  $18(A4),$18(A0) ; ioRefNum
+            dc.w    $A001 ; _Close
+            lea     $32(SP),SP
+            move.w  $18(A4),D0 ; ioRefNum
+            dc.w    $A03E ; _DrvrRemove
+            move.w  #-51,D0 ; ioRefNum      ; also delete .ATBOOT for neatness
+            dc.w    $A03E ; _DrvrRemove
+
+    ; A3 = our driver in sysheap (plus user record)
+            move.l  #DrvrEnd-DrvrBase+kUserRecLen,D0
+            dc.w    $A51E ; NewPtrSys
+            move.l  A0,A1
+            lea     DrvrBase,A0
+            move.l  #DrvrEnd-DrvrBase+kUserRecLen,D0
+            dc.w    $A02E ; BlockMove
+            move.l  A1,A3
+
+    ; Install the driver in the unit table. Take over netBOOT's old unit number.
+            move.w  $18(A4),D0 ; ioRefNum
+            dc.w    $A43D ; _DrvrInstall ReserveMem
+
+    ; That call created a driver control entry (DCE). Find and lock.
+            move.l  $11C,A0 ; UTableBase
+            move.w  $18(A4),D0 ; ioRefNum
+            not.w   D0
+            lsl.w   #2,D0
+            add.w   D0,A0
+            move.l  (A0),A0
+            dc.w    $A029 ; _HLock
+            move.l  (A0),A0
+
+    ; Populate the empty DCE that DrvrInstall left us (forget fields related desk accessories)
+            move.l  A3,(A0)                                 ; dCtlDriver = driver pointer (not handle)
+            move.w  (A3),4(A0)                              ; dCtlFlags = drvrFlags
+
+    ; Open our driver
+            lea     -$32(SP),SP
+            move.l  SP,A0
+            bsr     DrvrClearBlock
+            lea     DrvrName,A1
+            move.l  A1,$12(A0)                              ; IOFileName
+            dc.w    $A000                                   ; _Open
+            lea     $32(SP),SP
+
+    ; Add the a drive queue entry (DQE).
+            lea     dqLink-DrvrBase(A3),A0
+            move.l  $16(A4),D0
+            dc.w    $A04E ; _AddDrive (A0=DQE, D0=drvnum/drefnum)
+
+    ; Open .MPP (still open?) & our DDP socket
+            lea     -$32(SP),SP
+            move.l  SP,A0
+            bsr     DrvrClearBlock
+            pea     MPPName
+            move.l  (SP)+,$12(A0) ; ioNamePtr
+            dc.w    $A000 ; _Open
+            move.w  #248,$1A(A0) ; csCode = openSkt
+            move.b  #10,$1C(A0) ; socket = 10, same as ATBOOT uses
+            pea     DrvrSockListener-DrvrBase(A3)
+            move.l  (SP)+,$1E(A0) ; listener
+            dc.w    $A004 ; _Control
+            lea     $32(SP),SP
+
+; Re-execute the _Read trap in ROM
+            movem.l (SP)+,A0-A6/D0-D7
+            rts
+
+MPPName     dc.b    4, '.MPP', 0
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrBase
+            dc.w    $4F00           ; dReadEnable dWritEnable dCtlEnable dStatEnable dNeedLock
+            dc.w    0               ; delay
+            dc.w    0               ; evt mask
+            dc.w    0               ; menu
+
+            dc.w    DrvrOpen-DrvrBase
+            dc.w    DrvrPrime-DrvrBase
+            dc.w    DrvrControl-DrvrBase
+            dc.w    DrvrStatus-DrvrBase
+            dc.w    DrvrClose-DrvrBase
+DrvrName    dc.b    8, ".netBOOT", 0
+
+g
+gImage      dc.l    0               ; "configuration mode" by default
+gMyDCE      dc.l    0
+gExpectHdr  dc.l    0
+gProgress   dc.l    0
+gQuery      dcb.b   20              ; really need to consider the length of this!
+gWDS        dcb.b   2+4+2+4+2+4+2   ; room for an address and two data chunks
+gMyPB       dcb.b   $32+2 ; allow us to clear it with move.l's
+            odd
+gSaveAddr   dcb.b   16
+gAddr       dcb.b   16
+            even
+
+; Time Manager task
+tmLink      dc.l    0
+tmType      dc.w    0
+tmAddr      dc.l    0
+tmCount     dc.l    0
+
+; Drive queue element
+dqFlags     dc.l    $00080000
+dqLink      dc.l    0
+dqType      dc.w    1
+dqDrive     dc.w    0
+dqRefNum    dc.w    0
+dqFSID      dc.w    0
+dqDrvSz     dc.w    0
+dqDrvSz2    dc.w    0
+
+; a0=iopb, a1=dce on entry to all of these...
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrOpen
+            lea     gMyDCE,A2       ; dodgy, need this for IODone
+            move.l  A1,(A2)
+
+            move.w  #0,$10(A0)      ; ioResult
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrPrime
+
+; Convert the ioPosOffset in the parameter block to a block offset (allows large vol support).
+            btst.b  #0,$2C(A0)              ; test ioPosMode & kUseWidePositioning
+            bne.s   .wide
+.notwide    move.l  $10(A1),D0
+            bra.s   .gotD0
+.wide       move.l  $2E(A0),D0              ; the block offset can only be up to 32 bits
+            or.l    $32(A0),D0
+.gotD0      ror.l   #4,D0                   ; now D0 = (LS 23 bits) followed by (MS 9 bits)
+            ror.l   #5,D0
+            move.l  D0,$2E(A0)              ; ioPosOffset = D0 = byte_offset/512
+
+; Return with a "pending" ioResult.
+            move.w  #1,$10(A0)              ; ioResult = pending. We will return without an answer.
+
+; Wang the state machine!
+            cmp.b   #2,7(A0)                ; ioTrap == _Read?
+            bne     DrvrSendWrite           ; transition from "Idle" to "Await Comp Send Write Packet"
+            bra     DrvrSendRead            ; transition from "Idle" to "Await Comp Send Read Packet"
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrReSendRead
+; Time Manager task
+            lea     tmLink,A0
+            dc.w    $A059 ; _RmvTime
+
+            move.l  gMyDCE,A1                       ; get Device Mgr registers
+            move.l  6+2(A1),A0
+
+            ; truncate ioActCount
+            and.l   #-32*512,$28(A0)                ; truncate ioActCount
+
+DrvrSendRead
+; Called from Prime routine, socket listener or Time Manager:
+; PB/DCE in A0/A1 must be preserved (but we only require A0)
+            lea     gExpectHdr,A2
+            clr.w   (A2)+
+            addq.w  #1,(A2)             ; packet filter sequence word
+            lea     gProgress,A2
+            clr.l   (A2)
+
+            bsr.s   DrvrCopyAddrStruct
+
+            lea     gQuery,A2
+            move.w  #$8000,(A2)+                    ; Means a polite request
+            move.w  gExpectHdr+2,(A2)+
+            move.l  gImage,(A2)+
+
+            move.l  $28(A0),D0                      ; [ioActCount (in bytes)
+            lsr.l   #4,D0
+            lsr.l   #5,D0                           ; / 512]
+            add.l   $2E(A0),D0                      ; + ioPosOffset (in blocks)
+            move.l  D0,(A2)+                        ; -> "offset" field of request
+
+            move.l  $24(A0),D0                      ; [ioReqCount (in bytes)
+            sub.l   $28(A0),D0                      ; - ioActCount (in bytes)]
+            lsr.l   #4,D0
+            lsr.l   #5,D0                           ; / 512
+            move.l  D0,(A2)+                        ; -> "length" field of request
+
+            lea     gWDS,A2
+            clr.w   (A2)+                           ; WDS+0: reserved field
+            pea     gAddr
+            move.l  (SP)+,(A2)+                     ; WDS+2: pointer to address struct
+            move.w  #16,(A2)+                       ; WDS: push pointer/length
+            pea     gQuery
+            move.l  (SP)+,(A2)+
+            clr.w   (A2)+                           ; WDS: end with zero
+
+            move.l  A0,-(SP)
+            lea     gMyPB,A0
+            bsr     DrvrClearBlock
+            pea     DrvrDidSendRead
+            move.l  (SP)+,$C(A0)            ; ioCompletion
+            move.w  #-10,$18(A0)            ; ioRefNum = .MPP
+            move.w  #246,$1A(A0)            ; csCode = writeDDP
+            move.b  #10,$1C(A0)             ; socket = 10 (hardcoded)
+            move.b  #1,$1D(A0)              ; set checksumFlag
+            pea     gWDS
+            move.l  (SP)+,$1E(A0)           ; wdsPointer to our WriteDataStructure
+            dc.w    $A404                   ; _Control ,async
+            move.l  (SP)+,A0
+
+            rts
+
+DrvrCopyAddrStruct
+            movem.l A0-A1,-(SP)
+            lea     gSaveAddr,A0
+            lea     gAddr,A1
+            moveq.l #16,D0
+            dc.w    $A22E ; _BlockMoveData
+            movem.l (SP)+,A0-A1
+            rts
+
+DrvrDidSendRead
+; Called as completion routine: PB/result in A0/D0, must preserve all registers other than A0/A1/D0-D2
+            lea     gExpectHdr,A0
+            move.w  #$8100,(A0)                     ; Enable packet reception
+            move.l  #kInitialWaitMsec,D0
+
+DrvrInstallReSendRead
+; Called from anywhere, D0=waittime, can clobber anything
+            lea     tmLink,A0
+            pea     DrvrReSendRead
+            move.l  (SP)+,tmAddr-tmLink(A0)
+            move.l  D0,-(SP)
+            dc.w    $A058 ; _InsTime
+            move.l  (SP)+,D0
+            dc.w    $A05A ; _PrimeTime
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrReSendWrite
+; Time Manager task
+            lea     tmLink,A0
+            dc.w    $A059 ; _RmvTime
+
+            move.l  gMyDCE,A1                       ; get Device Mgr registers
+            move.l  6+2(A1),A0
+
+            ; truncate ioActCount
+            sub.l   #512,$28(A0)
+            and.l   #-32*512,$28(A0)                ; truncate ioActCount
+
+DrvrSendWrite
+; Called from Prime routine, socket listener or Time Manager:
+; PB/DCE in A0/A1 must be preserved (but we only require A0)
+
+; D1 = block index within chunk
+            move.l  $28(A0),D1
+            lsr.l   #5,D1
+            lsr.l   #4,D1
+            move.l  D1,D0
+            and.l   #32-1,D1
+
+            move.l  $28(A0),D2
+            add.l   #512,D2
+            cmp.l   $24(A0),D2
+            bne.s   .notLastBlock
+            bset    #7,D1
+.notLastBlock
+
+; D0 = first block of chunk
+            and.l   #-32,D0
+            add.l   $2E(A0),D0
+
+            tst.l   D1
+            bne.s   .notFirstBlockOfChunk
+            lea     gExpectHdr,A2
+            clr.w   (A2)+
+            addq.w  #1,(A2)             ; packet filter sequence word
+.notFirstBlockOfChunk
+
+            bsr     DrvrCopyAddrStruct
+
+            lea     gQuery,A2
+            move.b  #$82,(A2)+                      ; Means a polite request
+            move.b  D1,(A2)+                        ; nth block of this chunk follows
+            move.w  gExpectHdr+2,(A2)+
+            move.l  gImage,(A2)+
+            move.l  D0,(A2)+                        ; first block of this chunk
+
+            lea     gWDS,A2
+            clr.w   (A2)+                           ; WDS+0: reserved field
+            pea     gAddr
+            move.l  (SP)+,(A2)+                     ; WDS+2: pointer to address struct
+
+            move.w  #12,(A2)+                       ; WDS: push length/ptr of header
+            pea     gQuery
+            move.l  (SP)+,(A2)+
+
+            move.w  #512,(A2)+                      ; WDS: push length/ptr of body
+            move.l  $20(A0),D0                      ;      ptr = ioBuffer
+            add.l   $28(A0),D0                      ;          + ioActCount
+            move.l  D0,(A2)+
+
+            clr.w   (A2)+                           ; WDS: end with zero
+
+            move.l  A0,-(SP)
+            lea     gMyPB,A0
+            bsr     DrvrClearBlock
+            pea     DrvrDidSendWrite
+            move.l  (SP)+,$C(A0)            ; ioCompletion
+            move.w  #-10,$18(A0)            ; ioRefNum = .MPP
+            move.w  #246,$1A(A0)            ; csCode = writeDDP
+            move.b  #10,$1C(A0)             ; socket = 10 (hardcoded)
+            move.b  #1,$1D(A0)              ; set checksumFlag
+            pea     gWDS
+            move.l  (SP)+,$1E(A0)           ; wdsPointer to our WriteDataStructure
+            dc.w    $A404                   ; _Control ,async
+            move.l  (SP)+,A0
+
+            rts
+
+DrvrDidSendWrite ; completion routine for the above control call..
+            ; need to test whether to send another, or switch to wait mode...
+
+            move.l  gMyDCE,A0
+            move.l  6+2(A0),A0          ; A3 = dCtlQHdr.qHead = ParamBlk
+
+            movem.l $24(A0),D0/D1       ; D0=ioReqCount, D1=ioActCount
+            add.l   #512,D1
+            move.l  D1,$28(A0)
+
+            cmp.l   D0,D1
+            beq.s   DrvrInstallReSendWrite
+            and.l   #(32-1)*512,D0
+            beq.s   DrvrInstallReSendWrite
+            bra     DrvrSendWrite
+
+DrvrInstallReSendWrite
+            lea     tmLink,A0
+            pea     DrvrReSendWrite
+            move.l  (SP)+,tmAddr-tmLink(A0)
+            dc.w    $A058 ; _InsTime
+            move.l  #kInitialWaitMsec,D0
+            dc.w    $A05A ; _PrimeTime
+            rts
+
+DrvrClearBlock
+            move.w  #$32/2-1,D0
+.loop       clr.w   (A0)+
+            dbra    D0,.loop
+            lea     -$32(A0),A0
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrSockListener
+; Registers on call to DDP socket listener:
+;     A0  Reserved for internal use by the .MPP driver. You must preserve this register
+;         until after the ReadRest routine has completed execution.
+;     A1  Reserved for internal use by the .MPP driver. You must preserve this register
+;         until after the ReadRest routine has completed execution.
+;     A2  Pointer to the .MPP driver's local variables. Elliot says: the frame and packet
+;         header ("RHA") are at offset 1 from A2 (keeps the 2-byte fields aligned)
+;     A3  Pointer to the first byte in the RHA past the DDP header bytes (the first byte
+;         after the DDP protocol type field).
+;     A4  Pointer to the ReadPacket routine. The ReadRest routine starts 2 bytes after the
+;         start of the ReadPacket routine.
+;     A5  Free for your use before and until your socket listener calls the ReadRest routine.
+;     D0  Lower byte is the destination socket number of the packet.
+;     D1  Word indicating the number of bytes in the DDP packet left to be read (that is,
+;         the number of bytes following the DDP header).
+;     D2  Free for your use.
+;     D3  Free for your use.
+
+; Registers on entry to the ReadPacket routine
+;     A3  Pointer to a buffer to hold the data you want to read
+;     D3  Number of bytes to read; must be nonzero
+
+; Registers on exit from the ReadPacket routine
+;     A0  Unchanged
+;     A1  Unchanged
+;     A2  Unchanged
+;     A3  Address of the first byte after the last byte read into buffer
+;     A4  Unchanged
+;     D0  Changed
+;     D1  Number of bytes left to be read
+;     D2  Unchanged
+;     D3  Equals 0 if requested number of bytes were read, nonzero if error
+
+; Registers on entry to the ReadRest routine
+;     A3  Pointer to a buffer to hold the data you want to read
+;     D3  Size of the buffer (word length); may be 0
+
+; Registers on exit from the ReadRest routine
+;     A0  Unchanged
+;     A1  Unchanged
+;     A2  Unchanged
+;     A3  Pointer to first byte after the last byte read into buffer
+;     D0  Changed
+;     D1  Changed
+;     D2  Unchanged
+;     D3  Equals 0 if requested number of bytes exactly equaled the size of the buffer;
+;         less than 0 if more data was left than would fit in buffer (extra data equals
+;         -D3 bytes); greater than 0 if less data was left than the size of the buffer
+;         (extra buffer space equals D3 bytes)
+
+;            cmp.b   #10,-1(A3)          ; DDP protocol type better be ATBOOT
+;            bne.s   DrvrTrashPacket
+
+            moveq.l #4,D3
+            jsr     (A4)                ; Read the nice short packet header
+            bne     DrvrTrashPacket
+            move.l  -4(A3),D2
+
+            move.l  gExpectHdr,D3       ; Check the packet header
+            eor.l   D2,D3
+            swap    D3
+            clr.b   D3
+            bne     DrvrTrashPacket
+
+            movem.l A0-A1/D0-D2,-(SP)
+            lea     tmLink,A0
+            dc.w    $A059 ; _RmvTime
+            movem.l (SP)+,A0-A1/D0-D2
+
+            btst    #25,D2
+            bne.s   DrvrDidReceiveWrite
+
+
+DrvrDidReceiveRead
+            swap    D2
+            and.l   #32-1,D2            ; D2.L = block offset within 32blk chunk
+
+            move.l  gMyDCE,A3
+            move.l  6+2(A3),A3          ; A3 = dCtlQHdr.qHead
+
+            move.l  $28(A3),D3          ; D3 = .ioActCount...
+            lsr.l   #5,D3
+            lsr.l   #4,D3               ; ...now in number of blocks
+            and.l   #-32,D3             ; ...rounded down to a block chunk
+            add.l   D2,D3               ; ...added back the received block
+            asl.l   #8,D3
+            add.l   D3,D3               ; ... = byte offset within buffer
+
+            move.l  $20(A3),A3          ; .ioBuffer
+            add.l   D3,A3               ; A3 = ioBuffer + offset
+            move.l  #512,D3             ; D3 = size
+            jsr     2(A4)               ; ReadRest (A3=dest, D3=length)
+            bne     DrvrTrashPacket
+
+            lea     gProgress,A1        ; Skip the next step if this packet is a repeat
+            move.l  (A1),D1
+            bset.l  D2,D1               ; (we saved blkidx in D2 before ReadRest)
+            bne.s   DrvrTrashPacket
+            move.l  D1,(A1)
+
+            move.l  gMyDCE,A0
+            move.l  6+2(A0),A0          ; dCtlQHdr.qHead
+
+            move.l  $28(A0),D0          ; Increment ioActCount and cmp with ioReqCount
+            add.l   #512,D0
+            move.l  D0,$28(A0)
+            cmp.l   $24(A0),D0
+            beq.s   DrvrIODone
+
+            addq.l  #1,D1               ; If bitmap=$FFFFFFFF then get the next chunk of 32
+            beq     DrvrSendRead        ; A0 must be the PB
+
+            move.l  #kSubsequentWaitMsec,D0
+            bra     DrvrInstallReSendRead ; Just return to await more packets.
+
+DrvrDidReceiveWrite
+            moveq.l #0,D3
+            jsr     2(A4)               ; ReadRest (D3=0 i.e. discard)
+
+            move.l  gMyDCE,A0
+            move.l  6+2(A0),A0          ; A3 = dCtlQHdr.qHead = ParamBlk
+
+            movem.l $24(A0),D0/D1       ; D0=ioReqCount, D1=ioActCount
+            cmp.l   D0,D1
+            blo     DrvrSendWrite
+
+            bra.s   DrvrIODone
+
+DrvrIODone
+            lea     gExpectHdr,A1       ; Disable this socket listener
+            clr.w   (A1)
+
+            move.l  gMyDCE,A1
+            moveq.l #0,D0
+            move.l  $8FC,A0             ; jIODone (D0 = result, A1 = DCE)
+            jmp     (A0)
+
+DrvrTrashPacket
+            moveq.l #0,D3
+            jmp     2(A4)               ; ReadRest nothing
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrControl
+            cmp.w   #21,$1A(A0)
+            beq.s   control_kDriveIcon
+            cmp.w   #22,$1A(A0)
+            beq.s   control_kMediaIcon
+            bra.s   control_unknown
+
+control_kDriveIcon
+control_kMediaIcon
+            lea     DrvrIcon,A2
+            move.l  A2,$1C(A0)
+            clr.w   $10(A0)          ; ioResult = noErr
+            bra     DrvrFinish
+
+control_unknown
+            move.w  #-17,$10(A0)     ; ioResult = controlErr
+            bra     DrvrFinish
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrStatus
+            cmp.w   #6,$1A(A0)
+            beq.s   status_fmtLstCode
+            cmp.w   #8,$1A(A0)
+            beq.s   status_drvStsCode
+            bra.s   status_unknown
+
+status_fmtLstCode ; tell them about our size
+            move.l  dqDrvSz,D0
+            swap    D0
+            lsl.l   #5,D0               ; convert from blocks to bytes
+            lsl.l   #4,D0
+
+            move.w  #1,$1C(A0)
+            move.l  $1C+2(A0),A2
+            move.l  D0,0(A2)
+            move.l  #$40000000,4(A2)
+
+            move.w  #0,$10(A0)          ; ioResult = noErr
+            bra     DrvrFinish
+
+status_drvStsCode ; tell them about some of our flags
+            move.w  #0,$1C(A0)          ; csParam[0..1] = track no (0)
+            move.l  dqFlags,$1C+2(A0)   ; csParam[2..5] = same flags as dqe
+
+            move.w  #0,$10(A0)          ; ioResult = noErr
+            bra     DrvrFinish
+
+status_unknown
+            move.w  #-18,$10(A0)        ; ioResult
+            bra     DrvrFinish
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrClose
+            move.w  #0,$10(A0)      ; ioResult
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrFinish
+            move.w  6(A0),D1        ; iopb.ioTrap
+            btst    #9,D1           ; noQueueBit
+            bne.s   DrvrNoIoDone
+            move.l  $8FC,-(SP)      ; jIODone
+DrvrNoIoDone
+            rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+DrvrIcon
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %11111111111111111111111111111111
+            dc.l    %10000000000000000000000000000001
+            dc.l    %10000000000000001000000000000001
+            dc.l    %10010010010010011001001001001001
+            dc.l    %10010010010010000001001001001001
+            dc.l    %10010010010010000001001001001001
+            dc.l    %10010010010010010001001001001001
+            dc.l    %10010010010010001001001001001001
+            dc.l    %10010010010010010001001001001001
+            dc.l    %10010010010010001001001001001001
+            dc.l    %10010010010010010001001001001001
+            dc.l    %10000000000000000000000000000001
+            dc.l    %11111111111111111111111111111111
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %00000000000000000000000000000000
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.l    %11111111111111111111111111111111
+            dc.b    22, "AppleTalk NetBoot Disk", 0
+
+gUserRec ; append user record here later on, no need to waste space on zeros
+
+DrvrEnd
+CodeEnd
