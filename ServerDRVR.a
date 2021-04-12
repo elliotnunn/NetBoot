@@ -37,8 +37,8 @@ gABPBusyFlag ; Lockout flag: only one ABP request can be serviced at a time
 gABPReplyParamBlk ; For writeDDP control calls
             dcb.b   $32
 
-
-cannedWDS   dcb.b   24 ; doesn't need to be this long at all
+gABPWriteDataStruct ; For writeDDP control calls (gathers buffers into one pkt)
+            dcb.b   24 ; doesn't need to be this long at all
 
             odd
 gABPAddress ; Address of the Apple Boot Protocol client:
@@ -182,11 +182,6 @@ StopListening
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-nopCompletion
-            lea     gABPBusyFlag,A0
-            clr.b   (A0)
-            rts
-
 SocketListener ; Socket listener registers documented in IM
             lea     gABPBusyFlag,A5
             bset.b  #7,(A5)
@@ -234,7 +229,7 @@ SocketListener ; Socket listener registers documented in IM
             lea     gABPUserReply+4,A0
             move.l  4(A3),(A0)      ; copy "userData" to the reply
 
-            lea     cannedWDS+14,A1
+            lea     gABPWriteDataStruct+14,A1
             clr.w   -(A1)
             lea     gABPUserReply,A0
             move.l  A0,-(A1)
@@ -247,7 +242,7 @@ SocketListener ; Socket listener registers documented in IM
 
             lea     gABPReplyParamBlk,A0
             move.l  A1,$1E(A0)      ; wdsPointer
-            lea     nopCompletion,A1
+            lea     AllDoneCompletionRoutine,A1
             move.l  A1,$C(A0)       ; ioCompletion
             move.w  #-10,$18(A0)    ; ioRefNum = .MPP
             move.w  #246,$1A(A0)    ; csCode = writeDDP
@@ -281,7 +276,7 @@ ImageReplyCompletionRoutine ; fallthru from skt listener OR writeDDP completion
             move.w  D0,D1 ; D0 = idx, D1 = offset
             mulu.w  #ATBOOT_BLK_SIZE,D1
 
-            lea     cannedWDS+20,A1
+            lea     gABPWriteDataStruct+20,A1
             clr.w   -(A1)
 
             lea     Blob,A0
@@ -318,21 +313,6 @@ AllDoneCompletionRoutine
             rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-    if 0 ; Cool routine, don't need it because we inline the payload
-GetMyResourceID ; returns it in D0
-            link    A6,#-262
-            lea     ServerHeader,A0
-            dc.w    $A528               ; _RecoverHandleSys
-            move.l  A0,-(SP)            ; handle to this resource
-            pea     -262(A6)            ; place for ID
-            pea     -260(A6)            ; place for type
-            pea     -256(A6)            ; place for name
-            dc.w    $A9A8               ; _GetResInfo
-            move.w  -262(A6),D0
-            unlk    A6
-            rts
-    endif
 
 Blob
             incbin  'Client.bin.summed' ; built from Client.a
