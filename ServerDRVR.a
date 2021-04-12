@@ -38,7 +38,7 @@ gABPReplyParamBlk ; For writeDDP control calls
             dcb.b   $32
 
 gABPWriteDataStruct ; For writeDDP control calls (gathers buffers into one pkt)
-            dcb.b   24 ; doesn't need to be this long at all
+            dcb.b   20 ; doesn't need to be this long at all
 
             odd
 gABPAddress ; Address of the Apple Boot Protocol client:
