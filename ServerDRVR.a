@@ -19,8 +19,7 @@ ServerHeader
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Inline globals are practical because we are locked in the sysheap
 
-ATBOOT_BLK_LOG      equ 8
-ATBOOT_BLK_SIZE     equ 1<<ATBOOT_BLK_LOG
+ATBOOT_BLK_SIZE     equ 256 ; multiple of 64, must match Makefile
 
 gNameTableEntry ; Installed using RegisterName
             dc.l    0               ; qLink
