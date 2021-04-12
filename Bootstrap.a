@@ -48,7 +48,7 @@ pramDone
             pea     MyString
             dc.w    $ABFF ; _DebugStr
             move.l  $16A,D0 ; Ticks
-            add.l   #60,D0
+            add.l   #30,D0
 .loop       cmp.l   $16A,D0
             bhi.s   .loop
 
@@ -89,7 +89,7 @@ bootVars
             dc.b    $80         ; flags         flags for: never net boot, boot first, etc.
         ; bootVars ATPRAMrec
             dc.b    0           ; nbpVars       address of last server that we booted off of
-            dc.b    0           ; timeout       seconds to wait for bootserver response
+            dc.b    5           ; timeout       seconds to wait for bootserver response
             dcb.l   4, "PWD "   ; signature     image signature
             dcb.b   32          ; userName      an array of char, no length byte
             dcb.b   8           ; password      ditto
