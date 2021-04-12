@@ -17,6 +17,8 @@ from snefru_hash import append_snefru
 
 
 
+ATBOOT_BLOCK_SIZE = 256 # must be a multiple of 64 or snefru will choke
+
 UNRELIABILITY_PERCENT = 0
 def failchance():
     return (random.random() < UNRELIABILITY_PERCENT/100)
@@ -37,9 +39,11 @@ for img2name in image2:
 #     image += struct.pack('>LB', len(img2)//512, len(img2name)) + img2name
     while len(image) % 2: image += b'\0'
 
-image += bytes(5)
-while len(image) < 8 * 512: image += b'?'
-# image += b'Elliot'*10000 # padding, too much!
+# Constraint: client crashes when there is only one block
+while len(image) <= ATBOOT_BLOCK_SIZE: image += b'\0'
+
+# Constraint: client expects hash in the last 64 bytes of the last block
+while len(image) % ATBOOT_BLOCK_SIZE != ATBOOT_BLOCK_SIZE - 64: image += b'\0'
 image = append_snefru(image)
 
 writable_image = bytearray(open('A608.dsk', 'rb').read())
@@ -248,7 +252,7 @@ while 1:
                 dest_node=llap_src_node, dest_socket=ddp_src_socket,
                 src_node=99, src_socket=99,
                 proto_type=10,
-                data=struct.pack('>BBHLHHhL', 2, 1, boot_machine_id, boot_timestamp, 512, 0, 0, len(image) // 512).ljust(586, b'\0')
+                data=struct.pack('>BBHLHHhL', 2, 1, boot_machine_id, boot_timestamp, ATBOOT_BLOCK_SIZE, 0, 0, len(image) // ATBOOT_BLOCK_SIZE).ljust(586, b'\0')
             ))
 
         elif boot_type == 3:
@@ -272,8 +276,9 @@ while 1:
 
             # Okay, pretty much just send the bits that were requested!
             print('Sending blocks')
-            for blocknum in range(len(image) // 512):
-                if len(data) > blocknum // 8 and (data[blocknum // 8] >> (blocknum % 8)) & 1:
+            for blocknum in range(len(image) // ATBOOT_BLOCK_SIZE):
+#                 if len(data) > blocknum // 8 and (data[blocknum // 8] >> (blocknum % 8)) & 1:
+                if 1:
                     # typedef struct  {
                     #     unsigned    char    packetType;     /* The command number */
                     #     unsigned    char    packetVersion;  /* Protocol version number */
@@ -287,7 +292,7 @@ while 1:
                         dest_node=llap_src_node, dest_socket=ddp_src_socket,
                         src_node=99, src_socket=99,
                         proto_type=10,
-                        data=struct.pack('>BBHH', 4, 1, boot_image_id, blocknum) + image[blocknum*512:blocknum*512+512]
+                        data=struct.pack('>BBHH', 4, 1, boot_image_id, blocknum) + image[blocknum*ATBOOT_BLOCK_SIZE:blocknum*ATBOOT_BLOCK_SIZE+ATBOOT_BLOCK_SIZE]
                     ))
 
                     # time.sleep(0.5)
