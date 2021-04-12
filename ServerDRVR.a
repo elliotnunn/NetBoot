@@ -57,7 +57,7 @@ gABPUserReply ; reply to rbMapUser packet
             dc.w    0               ; imageID (we always use 0)
             dc.w    0               ; error code
             dc.l    (BlobEnd-Blob)/ATBOOT_BLK_SIZE ; block count
-            dcb.b   568             ; arbitrary bytes
+            ; we could put an arbitrary 568b "user record" here
 
 gABPImageReply ; reply to rbImageRequest packet
             dc.b    4               ; rbImageData
@@ -233,7 +233,7 @@ SocketListener ; Socket listener registers documented in IM
             clr.w   -(A1)
             lea     gABPUserReply,A0
             move.l  A0,-(A1)
-            move.w  #586,-(A1)
+            move.w  #18,-(A1)
             lea     gABPAddress,A0
             move.l  A0,-(A1)
             clr.w   -(A1)
