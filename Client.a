@@ -1,7 +1,4 @@
-            move.w  #$abab,D0
-            dc.w    $A9C9
-
-
+            include 'Structs.a'     ; fe* constants
 
 kUserRecLen equ 568
 kInitialWaitMsec    equ 10000
@@ -31,16 +28,10 @@ ResumeAfterCopy
 ; Salvage some possibly useful information from ATBOOT, while it is still running:
 
     ; Server address
+            lea     gServer,A1
             move.l  8(SP),A0    ; global pointer
-            move.l  24(A0),D0   ; AddrBlock
-            lea     gSaveAddr,A0
-            move.b  #10,15(A0)  ; hardcode DDP protocol ID
-            move.b  D0,13(A0)   ; socket
-            lsr.w   #4,D0
-            lsr.w   #4,D0
-            move.b  D0,11(A0)   ; node
-            swap    D0
-            move.w  D0,7(A0)    ; network
+            move.l  24(A0),(A1) ; AddrBlock
+            addq.b  #1,(A1)     ; increment the socket number by 1
 
     ; User record
             lea     gUserRec,A1
@@ -103,6 +94,37 @@ GoHereFromReadTrap
             move.w  #-51,D0 ; ioRefNum      ; also delete .ATBOOT for neatness
             dc.w    $A03E ; _DrvrRemove
 
+    ; Open .ATP
+            lea     -$32(SP),SP
+            move.l  SP,A0
+            bsr     DrvrClearBlock
+            pea     ATPName
+            move.l  (SP)+,$12(A0) ; ioNamePtr
+            dc.w    $A000 ; _Open
+            lea     $32(SP),SP
+
+    ; ask about every image, draw them on the screen
+
+
+            lea     ATPName,A0
+            move.w  #4,D0
+            lea     $0,A1
+            move.l  #100,D1
+            move.l  #'Elmo',D2
+            bsr     AskQuestion
+
+            move.w  #$E111,D0
+            dc.w    $A9C9
+
+
+
+
+
+
+
+
+
+
     ; A3 = our driver in sysheap (plus user record)
             move.l  #DrvrEnd-DrvrBase+kUserRecLen,D0
             dc.w    $A51E ; NewPtrSys
@@ -144,25 +166,50 @@ GoHereFromReadTrap
             move.l  $16(A4),D0
             dc.w    $A04E ; _AddDrive (A0=DQE, D0=drvnum/drefnum)
 
-    ; Open .MPP (still open?) & our DDP socket
-            lea     -$32(SP),SP
-            move.l  SP,A0
-            bsr     DrvrClearBlock
-            pea     MPPName
-            move.l  (SP)+,$12(A0) ; ioNamePtr
-            dc.w    $A000 ; _Open
-            move.w  #248,$1A(A0) ; csCode = openSkt
-            move.b  #10,$1C(A0) ; socket = 10, same as ATBOOT uses
-            pea     DrvrSockListener-DrvrBase(A3)
-            move.l  (SP)+,$1E(A0) ; listener
-            dc.w    $A004 ; _Control
-            lea     $32(SP),SP
-
 ; Re-execute the _Read trap in ROM
             movem.l (SP)+,A0-A6/D0-D7
             rts
 
-MPPName     dc.b    4, '.MPP', 0
+ATPName     dc.b    4, '.ATP', 0
+
+AskQuestion ; A0=txbuf/D0=txlen/A1=rxbuf/D1=rxlen/D2=userdata -> D0=rxlen
+.pb     equ -$34
+.bds    equ .pb-12
+.size   equ .pb
+
+            movem.l D3-D7/A2-A4,-(SP)
+            link    A6,#.size
+
+            move.l  A6,A4
+            moveq   #(-.size)/2-1,D4
+.clrloop    clr.w   -(A4)
+            dbra    D4,.clrloop
+
+            move.l  A0,A4           ; request buffer address
+            lea     .bds(A6),A3     ; Buffer Descriptor Structure
+            move.w  D1,(A3)         ; populate it with buffer addr/maxlen
+            move.l  A1,2(A3)
+
+            lea     .pb(A6),A0
+            move.l  D2,$12(A0)
+            move.w  #-11,$18(A0)    ; ioRefNum = .ATP
+            move.w  #255,$1A(A0)    ; csCode = sendRequest
+            move.l  gServer,$1E(A0) ; addrBlock
+            move.b  gUserRec,$1E+3(A0) ; addrBlock socket (EBP)
+            move.w  D0,$22(A0)      ; reqLength
+            move.l  A4,$24(A0)      ; reqPointer
+            move.l  A3,$28(A0)      ; bdsPointer
+            move.l  #$010400FF,$2C(A0)
+                  ; numOfBuffs/timeoutVal/numOfResps/retryCount
+
+            dc.w    $A004           ; _Control
+            bne.s   .returnError
+            move.w  6(A3),D0
+.returnError
+
+            unlk    A6
+            movem.l (SP)+,D0-D7/A0-A4
+            rts
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -188,6 +235,7 @@ gQuery      dcb.b   20              ; really need to consider the length of this
 gWDS        dcb.b   2+4+2+4+2+4+2   ; room for an address and two data chunks
 gMyPB       dcb.b   $32+2 ; allow us to clear it with move.l's
             odd
+gServer     dc.l    0
 gSaveAddr   dcb.b   16
 gAddr       dcb.b   16
             even

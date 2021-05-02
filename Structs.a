@@ -1,0 +1,12 @@
+; Disk image elements, in a queue
+feCurVers   equ 1
+            rsReset
+feQLink     rs.l 1 ; OS queue element
+feQType     rs.w 1
+feVers      rs.w 1 ; version this structure because it is publicly accessible
+feRefNum    rs.w 1 ; refnum of open file
+feConnCnt   rs.b 1 ; counter of connected computers
+fePermssn   rs.b 1 ; r/rw?
+feListRow   rs.w 1 ; rowNum within GUI List
+feUnique    rs.l 1 ; globally unique ID for this image on this server
+feFileName  rs.b 0 ; variable length pascal string

@@ -103,10 +103,10 @@ ServerDA ServerDA.idump ServerDA.rdump: ServerDA.bin ServerDRVR.bin
 	rfx cp ServerDRVR.bin ServerDA.rdump//DRVR/-16000
 
 testda: FORCE ServerDA ServerDA.idump ServerDA.rdump BootstrapFloppy.dsk
-	rm -rf /tmp/testda; mkdir -p /tmp/testda/Desktop\ Folder; cp ServerDA ServerDA.idump ServerDA.rdump /tmp/testda/Desktop\ Folder/
-	MakeHFS -s 400k -n TestDA -d now -i /tmp/testda /tmp/testda.dsk
-	rsync Big.dsk /tmp/Big.dsk
-	./twovmacs.bash "BootstrapFloppy.dsk" "/tmp/Big.dsk /tmp/testda.dsk"
+	rm -rf /tmp/testda; mkdir -p /tmp/testda/System\ Folder/Startup\ Items; DumpHFS Big.dsk /tmp/testda; cp ServerDA ServerDA.idump ServerDA.rdump /tmp/testda/System\ Folder/Startup\ Items/
+	rfx rm /tmp/testda/System\ Folder/System//lmgr/0
+	MakeHFS -s 20m -n TestDA -d now -i /tmp/testda /tmp/testda.dsk
+	./twovmacs.bash "BootstrapFloppy.dsk" "/tmp/testda.dsk"
 
 
 

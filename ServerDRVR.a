@@ -1,6 +1,8 @@
 ; I implement a "BootServer" on the AppleTalk network
 ; The Server Desk Accessory installs me in the system heap and opens me
 
+            include 'Structs.a'     ; fe* constants
+
 ServerHeader
             dc.w    $4000           ; dNeedLock
             dc.w    0               ; delay
@@ -47,6 +49,12 @@ gABPAddress ; Address of the Apple Boot Protocol client:
             dcb.b   1               ; backup of high byte of dest network
                                     ; (MUST copy byte 16 to 7 for every use)
 
+gABPImageReply ; reply to rbImageRequest packet
+            dc.b    4               ; rbImageData
+            dc.b    1               ; protocol version (always 1)
+            dc.w    0               ; imageID (we always use 0)
+            dc.w    0               ; increment block number here (offset 4)
+
 gABPUserReply ; reply to rbMapUser packet
             dc.b    2               ; rbUserReply
             dc.b    1               ; protocol version (always 1)
@@ -56,13 +64,12 @@ gABPUserReply ; reply to rbMapUser packet
             dc.w    0               ; imageID (we always use 0)
             dc.w    0               ; error code
             dc.l    (BlobEnd-Blob)/ATBOOT_BLK_SIZE ; block count
-            ; we could put an arbitrary 568b "user record" here
+            ; arbitrary <=568b "user record" begins at offset 18 here
+gEBPSocket
+            dc.b    $55             ; EBP socket number
+            even
 
-gABPImageReply ; reply to rbImageRequest packet
-            dc.b    4               ; rbImageData
-            dc.b    1               ; protocol version (always 1)
-            dc.w    0               ; imageID (we always use 0)
-            dc.w    0               ; increment block number here (offset 4)
+gEBPPB      dcb.b   $34
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -114,16 +121,24 @@ TryOpenMPP
 
 .returnYes
             sub     #$32,SP
-            lea     .MPP,A0
-            move.l  A0,$12(SP)      ; IOFileName
-            clr.b   $1B(SP)         ; IOPermssn
             move.l  SP,A0
+            lea     .MPP,A1
+            move.l  A1,$12(A0)      ; IOFileName = .MPP
+            clr.b   $1B(A0)         ; IOPermssn
             dc.w    $A000           ; _Open
             tst.w   $10(A0)         ; IOResult: check it
+            bne.s   .failOpen
+            lea     .ATP,A1
+            move.l  A1,$12(A0)      ; IOFileName = .ATP
+            clr.b   $1B(A0)         ; IOPermssn
+            dc.w    $A000           ; _Open
+            tst.w   $10(A0)         ; IOResult: check it
+.failOpen
             add     #$32,SP
             rts
 
 .MPP        dc.b    4, '.MPP', 0
+.ATP        dc.b    4, '.ATP', 0
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -132,7 +147,7 @@ RegisterForTransitions rts ; register for the LAP Manager queue if possible
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 Listen
-            sub     #$32,SP         ; OPEN DDP SOCKET
+            sub     #$32,SP         ; OPEN DDP SOCKET (Apple Boot Protocol)
             move.w  #-10,$18(SP)        ; ioRefNum = MPP
             move.w  #248,$1A(SP)        ; csCode = openSkt
             clr.b   $1C(SP)             ; socket = auto-assign
@@ -143,6 +158,45 @@ Listen
             lea     gNameTableEntry+7,A0 ; lowest byte of AddrBlock
             move.b  $1C(SP),(A0)        ; save socket number there
             add     #$32,SP
+
+            lea     gEBPPB,A0       ; OPEN ATP SOCKET (Elliot Boot Protocol)
+            move.w  #-11,$18(A0)        ; ioRefNum = ATP
+            move.w  #254,$1A(A0)        ; csCode = openATPSkt
+            clr.b   $1C(A0)             ; atpSocket = any
+            clr.l   $1E(A0)             ; addrBlock = any
+            dc.w    $A004               ; _Control
+            lea     gEBPSocket,A1
+            move.b  $1C(A0),(A1)
+
+
+
+
+
+            ; Some nasty debug code to work on...
+
+            move.b  $1C(A0),D7          ; get atpSocket
+
+            move.w  #$34-1,D0
+.clrlp      clr.b   (A0,D0)
+            dbra    D0,.clrlp
+
+            move.w  #-11,$18(A0)        ; ioRefNum = ATP
+            move.b  D7,$1C(A0)          ; atpsocket
+
+
+
+
+
+
+                                        ; NB: refnum, atpSocket already set
+            move.w  #253,$1A(A0)        ; csCode = getRequest
+            pea     EBPHandler
+            move.l  (SP)+,$C(A0)        ; ioCompletion
+            clr.w   $22(A0)             ; reqLength = 0
+            clr.l   $24(A0)             ; reqPointer = none
+            move.w  #20,$22(A0)         ; reqLength = 20
+            move.l  $2AE,$24(A0)        ; reqPointer = ROMBase
+            dc.w    $A404               ; _Control ,async
 
             sub     #$32,SP         ; ADVERTISE NBP SERVICE
             move.w  #-10,$18(SP)        ; ioRefNum = MPP
@@ -232,7 +286,7 @@ SocketListener ; Socket listener registers documented in IM
             clr.w   -(A1)
             lea     gABPUserReply,A0
             move.l  A0,-(A1)
-            move.w  #18,-(A1)
+            move.w  #18+1,-(A1)
             lea     gABPAddress,A0
             move.l  A0,-(A1)
             clr.w   -(A1)
@@ -310,6 +364,10 @@ AllDoneCompletionRoutine
             lea     gABPBusyFlag,A0
             clr.b   (A0)
             rts
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+EBPHandler dc.w $A9FF
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 

@@ -4,9 +4,12 @@
 ****
 ***************************************************************************
 
+                include 'Structs.a' ; fe* constants
+
 ; My global variables in a dCtlStorage handle
 ; The first $9C bytes are occupied by a window rec (of which grafPort is part)
 
+                rsReset
                 rs.b    $9C ; grafPort and windowRecord
 gPB             rs.l    1   ; keep PB&DCE together; both are pointers
 gDCE            rs.l    1
@@ -18,15 +21,6 @@ gCloseBtn       rs.l    1
 gDiskBtn        rs.l    1
 gList           rs.l    1
 gSize           rs.b    0
-
-; "File entry" list (stored as a handle in dCtlStorage)
-feQLink     equ 0   ; long
-feQType     equ 4   ; word
-feRefNum    equ 6   ; word
-feConnCnt   equ 8   ; byte
-fePermssn   equ 9   ; byte
-feListRow   equ 10  ; word rowNum within List
-feFileName  equ 12  ; variable length pascal string
 
 ; Initial window size
 kWinW       equ 219
@@ -553,6 +547,7 @@ OpenBtn
         dc.w    $A71E           ; _NewPtrSysClear
         move.l  A0,D0
         beq.s   .cancelOpen
+        move.w  #feCurVers,feVers(A0)
         move.w  24(SP),feRefNum(A0) ; IORefNum...feRefNum
         move.b  17(SP),fePermssn(A0) ; IOPermssn...fePermssn
         moveq.l #1,D0
@@ -562,10 +557,6 @@ OpenBtn
         dc.w    $A22E           ; _BlockMoveData the name
         lea     -feFileName(A1),A0 ; hack to get our register back
         move.l  A0,A2
-
-        ; And append it to the interrupt-time-accessible queue
-        move.l  gBackendQHdr,A1
-        dc.w    $A96F           ; _Enqueue
 
         ; Append the entry to the list
         subq    #2,SP
@@ -586,6 +577,18 @@ OpenBtn
         move.l  gList(A4),-(SP)     ; lHandle
         move.w  #88,-(SP)
         dc.w    $A9E7               ; _LSetCell
+
+        ; Glue together a unique ID from Ticks and whatever else
+        move.l  $16A,D0
+        swap    D0
+        move.w  feListRow(A2),D1
+        eor.w   D1,D0
+        move.l  D0,feUnique(A2)
+
+        ; Lastly append it to the interrupt-time-accessible queue
+        move.l  A2,A0
+        move.l  gBackendQHdr,A1
+        dc.w    $A96F           ; _Enqueue
 
 .cancelOpen
         unlk    A6
